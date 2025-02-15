@@ -1,0 +1,50 @@
+# Web Framework and Extensions
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.4.2
+pydantic[email]>=2.4.2
+typing-extensions>=4.8.0
+
+# Authentication and Security
+python-jose>=3.3.0
+passlib>=1.7.4
+bcrypt>=4.0.1
+python-dotenv>=1.0.0
+
+# HTTP Client
+aiohttp>=3.9.0
+requests>=2.31.0
+
+# Database
+motor>=3.3.1
+pymongo>=4.5.0
+cachetools>=5.3.1
+
+# Document Processing
+langchain>=0.0.300
+langchain-community>=0.0.10
+langchain-openai>=0.0.3
+langchain-chroma>=0.0.5  # Added this package
+chromadb>=0.4.15
+openai>=1.3.0
+pypdf>=3.17.0
+docx2txt>=0.8
+
+# Data Processing
+pandas>=2.1.1
+numpy>=1.24.0
+
+# Utilities
+python-dateutil>=2.8.2
+structlog>=23.1.0
+tenacity>=8.2.3
+pytz>=2023.3
+
+# CORS
+starlette>=0.27.0
+
+# Testing (Optional but recommended)
+pytest>=7.4.3
+pytest-asyncio>=0.21.1
+httpx>=0.25.0

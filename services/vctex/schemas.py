@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from tools.vctex.models import Borrower, Document, Address, DisbursementBankAccount
+from models.vctex.models import Borrower, Document, Address, DisbursementBankAccount
 
 
 class SimulationRequest(BaseModel):

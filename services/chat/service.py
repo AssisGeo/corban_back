@@ -246,7 +246,12 @@ class ChatService:
 
     async def get_messages_metrics(self):
         pipeline = [
-            {"$match": {"messages": {"$exists": True, "$ne": []}}},
+            {
+                "$match": {
+                    "messages": {"$exists": True, "$ne": []},
+                    "last_updated": {"$exists": True, "$ne": None},
+                }
+            },
             {"$unwind": "$messages"},
             {
                 "$group": {
@@ -271,24 +276,33 @@ class ChatService:
         peak_day = {"day": "", "count": 0}
 
         for doc in result:
-            hour = doc["_id"]["hour"]
-            count = doc["count"]
-            hours[hour] += count
-            total_messages += count
+            try:
+                if doc["_id"] and isinstance(doc["_id"], dict):
+                    hour = doc["_id"].get("hour")
+                    weekday_idx = doc["_id"].get("weekDay")
+                    count = doc["count"]
 
-            if hours[hour] > peak_hour["count"]:
-                peak_hour = {"hour": hour, "count": hours[hour]}
+                    if hour is not None and 0 <= hour < 24:
+                        hours[hour] += count
+                        total_messages += count
 
-            weekday_idx = doc["_id"]["weekDay"] - 1
-            weekday_data[weekdays[weekday_idx]] += count
-            if weekday_data[weekdays[weekday_idx]] > peak_day["count"]:
-                peak_day = {
-                    "day": weekdays[weekday_idx],
-                    "count": weekday_data[weekdays[weekday_idx]],
-                }
+                        if hours[hour] > peak_hour["count"]:
+                            peak_hour = {"hour": hour, "count": hours[hour]}
 
-        avg_per_hour = total_messages / 24
-        avg_per_day = total_messages / 7
+                    if weekday_idx is not None and 1 <= weekday_idx <= 7:
+                        weekday = weekdays[weekday_idx - 1]
+                        weekday_data[weekday] += count
+
+                        if weekday_data[weekday] > peak_day["count"]:
+                            peak_day = {
+                                "day": weekday,
+                                "count": weekday_data[weekday],
+                            }
+            except Exception:
+                continue
+
+            avg_per_hour = total_messages / 24 if total_messages > 0 else 0
+            avg_per_day = total_messages / 7 if total_messages > 0 else 0
 
         return {
             "hourly": {

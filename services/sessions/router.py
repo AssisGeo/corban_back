@@ -23,16 +23,24 @@ async def create_session(
         session = await service.create_session(session_data.model_dump())
         logger.debug(f"Sessão criada com sucesso: {session}")
 
+        customer_info = session.get("customer_data", {}).get("customer_info", {})
+        phone_info = customer_info.get("phone", {})
+        phone = (
+            f"{phone_info.get('ddd', '')}{phone_info.get('number', '')}"
+            if phone_info
+            else ""
+        )
+
         return SessionResponse(
-            session_id=session["session_id"],
-            name=session["customer_data"]["customer_info"]["name"],
-            email=session["customer_data"]["customer_info"]["email"],
-            cpf=session["customer_data"]["customer_info"]["cpf"],
-            phone=f"{session['customer_data']['customer_info']['phone']['ddd']}{session['customer_data']['customer_info']['phone']['number']}",
-            zip_code=session["customer_data"]["customer_info"]["zip_code"],
+            session_id=session.get("session_id", ""),
+            name=customer_info.get("name"),
+            email=customer_info.get("email"),
+            cpf=customer_info.get("cpf"),
+            phone=phone,
+            zip_code=customer_info.get("zip_code"),
             created_at=session["created_at"].isoformat(),
-            status=session["status"],
-            source=session["source"],
+            status=session.get("status", "unknown"),
+            source=session.get("source", "unknown"),
         )
     except Exception as e:
         logger.error(f"Erro ao criar sessão: {str(e)}")
@@ -48,22 +56,35 @@ async def list_traffic_leads(
     logger.debug("Listando leads de tráfego")
     try:
         result = await service.list_traffic_leads(skip=skip, limit=limit)
-        leads = [
-            SessionResponse(
-                session_id=lead["session_id"],
-                name=lead["customer_data"]["customer_info"]["name"],
-                email=lead["customer_data"]["customer_info"]["email"],
-                cpf=lead["customer_data"]["customer_info"]["cpf"],
-                phone=f"{lead['customer_data']['customer_info']['phone']['ddd']}{lead['customer_data']['customer_info']['phone']['number']}",
-                zip_code=lead["customer_data"]["customer_info"]["zip_code"],
-                created_at=lead["created_at"].isoformat(),
-                status=lead["status"],
-                source=lead.get("metadata", {}).get(
-                    "origin", lead.get("source", "unknown")
-                ),
+        leads = []
+
+        for lead in result["leads"]:
+            customer_info = lead.get("customer_data", {}).get("customer_info", {})
+            phone_info = customer_info.get("phone", {})
+
+            # Construindo o número de telefone com validação
+            phone = ""
+            if phone_info:
+                ddd = phone_info.get("ddd", "")
+                number = phone_info.get("number", "")
+                if ddd and number:
+                    phone = f"{ddd}{number}"
+
+            leads.append(
+                SessionResponse(
+                    session_id=lead.get("session_id", ""),
+                    name=customer_info.get("name"),
+                    email=customer_info.get("email"),
+                    cpf=customer_info.get("cpf"),
+                    phone=phone,
+                    zip_code=customer_info.get("zip_code"),
+                    created_at=lead["created_at"].isoformat(),
+                    status=lead.get("status", "unknown"),
+                    source=lead.get("metadata", {}).get(
+                        "origin", lead.get("source", "unknown")
+                    ),
+                )
             )
-            for lead in result["leads"]
-        ]
 
         return {
             "leads": leads,
@@ -73,7 +94,7 @@ async def list_traffic_leads(
         }
     except Exception as e:
         logger.error(f"Erro ao listar leads de tráfego: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"leads": [], "total": 0, "page": 1, "total_pages": 0}
 
 
 @router.get("/{session_id}", response_model=SessionResponse)
@@ -89,16 +110,24 @@ async def get_session(
 
         logger.debug(f"Sessão encontrada: {session}")
 
+        customer_info = session.get("customer_data", {}).get("customer_info", {})
+        phone_info = customer_info.get("phone", {})
+        phone = (
+            f"{phone_info.get('ddd', '')}{phone_info.get('number', '')}"
+            if phone_info
+            else ""
+        )
+
         return SessionResponse(
-            session_id=session["session_id"],
-            name=session["customer_data"]["customer_info"]["name"],
-            email=session["customer_data"]["customer_info"]["email"],
-            cpf=session["customer_data"]["customer_info"]["cpf"],
-            phone=f"{session['customer_data']['customer_info']['phone']['ddd']}{session['customer_data']['customer_info']['phone']['number']}",
-            zip_code=session["customer_data"]["customer_info"]["zip_code"],
+            session_id=session.get("session_id", ""),
+            name=customer_info.get("name"),
+            email=customer_info.get("email"),
+            cpf=customer_info.get("cpf"),
+            phone=phone,
+            zip_code=customer_info.get("zip_code"),
             created_at=session["created_at"].isoformat(),
-            status=session["status"],
-            source=session["source"],
+            status=session.get("status", "unknown"),
+            source=session.get("source", "unknown"),
         )
     except HTTPException:
         raise

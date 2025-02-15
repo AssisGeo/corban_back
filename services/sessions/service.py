@@ -25,14 +25,14 @@ class SessionService:
                 "session_id": session_id,
                 "customer_data": {
                     "customer_info": {
-                        "name": session_data["name"],
-                        "email": session_data["email"],
-                        "cpf": session_data["cpf"],
+                        "name": session_data.get("name"),
+                        "email": session_data.get("email"),
+                        "cpf": session_data.get("cpf"),
                         "phone": {
                             "ddd": session_data["phone"][:2],
                             "number": session_data["phone"][2:],
                         },
-                        "zip_code": session_data["zip_code"],
+                        "zip_code": session_data.get("zip_code"),
                     }
                 },
                 "created_at": datetime.now(BR_TZ),

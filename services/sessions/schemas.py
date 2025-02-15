@@ -1,4 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
+from typing import Optional
 
 
 class SessionCreate(BaseModel):
@@ -23,13 +24,13 @@ class SessionCreate(BaseModel):
 
 class SessionResponse(BaseModel):
     session_id: str
-    name: str = Field(default="")
-    email: str = Field(default="")
-    cpf: str = Field(default="")
-    phone: str = Field(default="")
-    zip_code: str = Field(default="")
+    name: Optional[str] = Field(default="")
+    email: Optional[str] = Field(default="")
+    cpf: Optional[str] = Field(default="")
+    phone: Optional[str] = Field(default="")
+    zip_code: Optional[str] = Field(default="")
     created_at: str
-    status: str = Field(default="unknown")
-    source: str = Field(default="unknown")
+    status: Optional[str] = Field(default="unknown")
+    source: Optional[str] = Field(default="unknown")
 
     model_config = {"from_attributes": True}

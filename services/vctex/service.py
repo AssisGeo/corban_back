@@ -78,7 +78,6 @@ class VCTEXService:
                 borrower.maritalStatus.strip().upper(), "single"
             )
 
-            # Normalizar CPF
             normalized_cpf = borrower.cpf.replace(".", "").replace("-", "")
 
             customer_data = {
@@ -99,17 +98,15 @@ class VCTEXService:
                 }
             }
 
-            # Armazenar os dados do cliente na sessão
             self.memory_manager.set_session_data(
                 session_id, "customer_data", customer_data
             )
 
-            # Criar o borrower normalizado (agora com maritalStatus corrigido)
             normalized_borrower = {
                 **borrower.dict(),
                 "cpf": normalized_cpf,
                 "gender": normalized_gender,
-                "maritalStatus": normalized_marital_status,  # Agora incluindo o estado civil normalizado
+                "maritalStatus": normalized_marital_status,
                 "nationality": "brazilian",
                 "pep": False,
                 "naturalness": "Rio de Janeiro - RJ",

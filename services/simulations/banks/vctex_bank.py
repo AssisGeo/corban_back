@@ -48,12 +48,9 @@ class VCTEXBankSimulator(BankSimulator):
                         raw_response=result,
                     )
 
-                # Verificar se há valor total liberado
                 if "total_released" in result:
                     try:
-                        amount = float(
-                            result["total_released"].replace(".", "").replace(",", ".")
-                        )
+                        amount = float(result["total_released"])
                         return SimulationResult(
                             bank_name=self.bank_name,
                             available_amount=amount,

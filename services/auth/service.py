@@ -6,10 +6,11 @@ from pymongo import MongoClient
 import os
 from fastapi import HTTPException, status
 from .schemas import UserCreate, UserResponse
+from .roles.constants import UserRole, ROLE_PERMISSIONS, ROLE_NAMES
 
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 17000
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -21,7 +22,24 @@ class AuthService:
         self.db = self.client["fgts_agent"]
         self.users = self.db["users"]
 
+        # Criar índices únicos
         self.users.create_index("email", unique=True)
+
+        # Criar usuário admin se não existir
+        self._create_default_admin()
+
+    def _create_default_admin(self):
+        """Cria um usuário admin padrão se não existir nenhum admin"""
+        admin_exists = self.users.find_one({"role": UserRole.ADMIN})
+        if not admin_exists:
+            admin_user = {
+                "email": "admin@exemplo.com",
+                "name": "Admin",
+                "hashed_password": self.get_password_hash("admin123"),
+                "role": UserRole.ADMIN,
+                "created_at": datetime.utcnow(),
+            }
+            self.users.insert_one(admin_user)
 
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         return pwd_context.verify(plain_password, hashed_password)
@@ -53,12 +71,19 @@ class AuthService:
             "email": user.email,
             "name": user.name,
             "hashed_password": self.get_password_hash(user.password),
+            "role": user.role,
             "created_at": datetime.utcnow(),
         }
 
         self.users.insert_one(user_data)
 
-        return UserResponse(email=user.email, name=user.name)
+        return UserResponse(
+            email=user.email,
+            name=user.name,
+            role=user.role,
+            role_name=ROLE_NAMES.get(user.role, "Operador"),
+            permissions=ROLE_PERMISSIONS.get(user.role, []),
+        )
 
     async def authenticate_user(self, email: str, password: str):
         user = self.users.find_one({"email": email})
@@ -68,7 +93,7 @@ class AuthService:
             return False
         return user
 
-    def get_current_user(self, token: str):
+    def get_current_user(self, token: str) -> UserResponse:
         credentials_exception = HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
@@ -86,4 +111,13 @@ class AuthService:
         if user is None:
             raise credentials_exception
 
-        return UserResponse(email=user["email"], name=user["name"])
+        # Pegar a role do usuário ou definir como OPERATOR por padrão
+        user_role = user.get("role", UserRole.OPERATOR)
+
+        return UserResponse(
+            email=user["email"],
+            name=user["name"],
+            role=user_role,
+            role_name=ROLE_NAMES.get(user_role, "Operador"),
+            permissions=ROLE_PERMISSIONS.get(user_role, []),
+        )

@@ -1,10 +1,17 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, List
+from .roles.constants import UserRole
+from .roles.models import UserPermissions
 
 
-class UserCreate(BaseModel):
+class UserBase(BaseModel):
     email: EmailStr
-    password: str
     name: str
+
+
+class UserCreate(UserBase):
+    password: str
+    role: UserRole = Field(default=UserRole.OPERATOR)
 
 
 class UserLogin(BaseModel):
@@ -15,8 +22,21 @@ class UserLogin(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    user: UserPermissions
 
 
-class UserResponse(BaseModel):
-    email: EmailStr
-    name: str
+class UserResponse(UserBase):
+    role: UserRole
+    permissions: List[str] = []
+    role_name: str
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role: Optional[UserRole] = None
+
+
+class PasswordUpdate(BaseModel):
+    current_password: str
+    new_password: str

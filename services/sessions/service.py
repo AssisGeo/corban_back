@@ -21,20 +21,23 @@ class SessionService:
     async def create_session(self, session_data: Dict[str, Any]) -> Dict[str, Any]:
         try:
             session_id = f"55{session_data['phone']}"
+            customer_info = {
+                "name": session_data.get("name"),
+                "cpf": session_data.get("cpf"),
+                "phone": {
+                    "ddd": session_data["phone"][:2],
+                    "number": session_data["phone"][2:],
+                },
+            }
+
+            if email := session_data.get("email"):
+                customer_info["email"] = email
+            if zip_code := session_data.get("zip_code"):
+                customer_info["zip_code"] = zip_code
+
             session = {
                 "session_id": session_id,
-                "customer_data": {
-                    "customer_info": {
-                        "name": session_data.get("name"),
-                        "email": session_data.get("email"),
-                        "cpf": session_data.get("cpf"),
-                        "phone": {
-                            "ddd": session_data["phone"][:2],
-                            "number": session_data["phone"][2:],
-                        },
-                        "zip_code": session_data.get("zip_code"),
-                    }
-                },
+                "customer_data": {"customer_info": customer_info},
                 "created_at": datetime.now(BR_TZ),
                 "status": "active",
                 "source": "trafego",

@@ -36,7 +36,7 @@ class Borrower(BaseModel):
         description="Estado civil do cliente (opções: single, married)",
     )
     nationality: str = Field(
-        ...,
+        "brasileiro",
         description="Nacionalidade do cliente (exemplo: brazilian)",
     )
     motherName: str = Field(
@@ -44,16 +44,30 @@ class Borrower(BaseModel):
         description="Nome completo da mãe do cliente, incluindo primeiro nome e sobrenome(s)",
     )
     pep: bool = Field(
-        ...,
+        False,
         description="Indica se o cliente é uma Pessoa Exposta Politicamente (PEP). True para sim, False para não",
     )
     naturalness: str = Field(
-        ...,
-        description="Naturalidade do cliente (cidade e estado de nascimento)",
+        "Rio de Janeiro - RJ",
+        description="Cidade e estado de nascimento do cliente (exemplo: São Paulo - SP)",
     )
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]):
+        # Normalizar gênero
+        gender_map = {
+            "M": "male",
+            "F": "female",
+            "MALE": "male",
+            "FEMALE": "female",
+        }
+        if "gender" in data:
+            data["gender"] = gender_map.get(data["gender"].upper(), data["gender"])
+
+        # Normalizar CPF
+        if "cpf" in data:
+            data["cpf"] = data["cpf"].replace(".", "").replace("-", "")
+
         return cls(**data)
 
 

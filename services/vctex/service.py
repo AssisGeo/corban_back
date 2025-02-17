@@ -44,21 +44,50 @@ class VCTEXService:
             raise
 
     async def create_proposal(self, proposal_data: ProposalRequest) -> Dict[str, Any]:
-        """
-        Cria proposta de crédito FGTS com os dados fornecidos e salva no banco de dados.
-        Se a sessão não existir, cria uma nova.
-        """
         try:
             session_id = proposal_data.financialId
-
             borrower = proposal_data.borrower
+
+            # Normalizar gênero
+            gender_map = {
+                "M": "male",
+                "F": "female",
+                "MALE": "male",
+                "FEMALE": "female",
+                "m": "male",
+                "f": "female",
+            }
+            normalized_gender = gender_map.get(
+                borrower.gender.strip().upper(), "notInformed"
+            )
+
+            # Normalizar estado civil
+            marital_status_map = {
+                "CASADO": "married",
+                "SOLTEIRO": "single",
+                "DIVORCIADO": "divorced",
+                "VIUVO": "widower",
+                "VIUVA": "widow",
+                "casado": "married",
+                "solteiro": "single",
+                "divorciado": "divorced",
+                "viuvo": "widower",
+                "viuva": "widow",
+            }
+            normalized_marital_status = marital_status_map.get(
+                borrower.maritalStatus.strip().upper(), "single"
+            )
+
+            # Normalizar CPF
+            normalized_cpf = borrower.cpf.replace(".", "").replace("-", "")
 
             customer_data = {
                 "customer_info": {
                     "name": borrower.name,
-                    "cpf": borrower.cpf,
+                    "cpf": normalized_cpf,
                     "mother_name": borrower.motherName,
-                    "gender": borrower.gender,
+                    "gender": normalized_gender,
+                    "maritalStatus": normalized_marital_status,
                     "birth_date": borrower.birthdate,
                     "address_number": proposal_data.address.number,
                     "zip_code": proposal_data.address.zipCode,
@@ -75,14 +104,21 @@ class VCTEXService:
                 session_id, "customer_data", customer_data
             )
 
+            # Criar o borrower normalizado (agora com maritalStatus corrigido)
+            normalized_borrower = {
+                **borrower.dict(),
+                "cpf": normalized_cpf,
+                "gender": normalized_gender,
+                "maritalStatus": normalized_marital_status,  # Agora incluindo o estado civil normalizado
+                "nationality": "brazilian",
+                "pep": False,
+                "naturalness": "Rio de Janeiro - RJ",
+            }
+
             payload = {
                 "feeScheduleId": 0,
                 "financialId": proposal_data.financialId,
-                "borrower": {
-                    **borrower.__dict__,
-                    "nationality": "brasileiro",
-                    "pep": False,
-                },
+                "borrower": normalized_borrower,
                 "document": proposal_data.document.dict(),
                 "address": proposal_data.address.dict(),
                 "disbursementBankAccount": (
@@ -92,6 +128,7 @@ class VCTEXService:
                 ),
             }
 
+            logger.info(f"Payload normalizado para envio: {payload}")
             result = await self.vctex_client.create_proposal(payload)
 
             if isinstance(result, dict) and result.get("statusCode", 0) >= 400:

@@ -35,7 +35,6 @@ class SimulationService:
                 results.append(await bank.simulate(cpf))
 
         self._save_results(cpf, results)
-        print(results)
         return results
 
     def _save_results(self, cpf: str, results: List[SimulationResult]):

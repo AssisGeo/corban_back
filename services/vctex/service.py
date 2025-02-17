@@ -22,7 +22,7 @@ class VCTEXService:
     ) -> Dict[str, Any]:
         try:
             payload = {
-                "clientCpf": simulation_data.cpf,
+                "clientCpf": simulation_data.cpf.replace(".", "").replace("-", ""),
                 "feeScheduleId": simulation_data.fee_schedule_id,
             }
 

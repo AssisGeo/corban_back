@@ -35,6 +35,7 @@ class SimulationService:
                 results.append(await bank.simulate(cpf))
 
         self._save_results(cpf, results)
+        print(results)
         return results
 
     def _save_results(self, cpf: str, results: List[SimulationResult]):
@@ -77,7 +78,11 @@ class SimulationService:
         )
 
     def get_all_simulations(
-        self, page: int = 1, per_page: int = 10, bank_name: str | None = None, cpf: str | None = None
+        self,
+        page: int = 1,
+        per_page: int = 10,
+        bank_name: str | None = None,
+        cpf: str | None = None,
     ) -> Dict:
         """Recupera todas as simulações com paginação"""
         query = {}
@@ -92,25 +97,30 @@ class SimulationService:
 
         # Aplica paginação
         skip = (page - 1) * per_page
-        cursor = self.simulations.find(
-            query,
-            {
-                "_id": 0,
-                "cpf": 1,
-                "bank_name": 1,
-                "available_amount": 1,
-                "error_message": 1,
-                "success": 1,
-                "timestamp": 1
-            }
-        ).sort("timestamp", DESCENDING).skip(skip).limit(per_page)
+        cursor = (
+            self.simulations.find(
+                query,
+                {
+                    "_id": 0,
+                    "cpf": 1,
+                    "bank_name": 1,
+                    "available_amount": 1,
+                    "error_message": 1,
+                    "success": 1,
+                    "timestamp": 1,
+                },
+            )
+            .sort("timestamp", DESCENDING)
+            .skip(skip)
+            .limit(per_page)
+        )
 
         return {
             "items": list(cursor),
             "page": page,
             "per_page": per_page,
             "total_pages": total_pages,
-            "total_items": total_docs
+            "total_items": total_docs,
         }
 
     def list_banks(self) -> Dict[str, Any]:

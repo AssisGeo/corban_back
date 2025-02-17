@@ -11,6 +11,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from cachetools import TTLCache
 import structlog
 from aiohttp import TCPConnector, ClientTimeout
+import ssl
 
 load_dotenv()
 
@@ -140,6 +141,11 @@ class VCTEXAPIClient:
             await self.start_session()
 
         try:
+            # Configurar SSL para o proxy HTTPS
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
             async with self.session.request(
                 method,
                 url,
@@ -147,6 +153,7 @@ class VCTEXAPIClient:
                 headers=headers,
                 proxy=self.proxy_url if self.proxy else None,
                 timeout=self.timeout,
+                ssl=ssl_context if self.proxy else None,
             ) as response:
                 response_text = await response.text()
                 logger.info(
@@ -207,7 +214,6 @@ class VCTEXAPIClient:
             response = await self._request(
                 "POST", "service/simulation/installments", data
             )
-
             if "error" in response:
                 return response
 

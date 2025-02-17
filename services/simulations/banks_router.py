@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends
 from typing import Dict, Any
 from .services import SimulationService
 from .banks.qi_bank import QIBankSimulator
+from .banks.vctex_bank import VCTEXBankSimulator
+
 
 router = APIRouter(prefix="/api/v1", tags=["banks"])
 
@@ -9,6 +11,7 @@ router = APIRouter(prefix="/api/v1", tags=["banks"])
 def get_simulation_service() -> SimulationService:
     service = SimulationService()
     service.register_bank(QIBankSimulator())
+    service.register_bank(VCTEXBankSimulator())
     return service
 
 

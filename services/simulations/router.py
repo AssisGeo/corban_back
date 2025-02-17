@@ -3,6 +3,7 @@ from typing import List, Optional, Dict
 from .services import SimulationService
 from .banks.base import SimulationResult
 from .banks.qi_bank import QIBankSimulator
+from .banks.vctex_bank import VCTEXBankSimulator
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -22,6 +23,8 @@ router = APIRouter(prefix="/api/v1/simulation", tags=["simulation"])
 def get_simulation_service() -> SimulationService:
     service = SimulationService()
     service.register_bank(QIBankSimulator())
+    service.register_bank(VCTEXBankSimulator())
+
     return service
 
 
@@ -35,6 +38,7 @@ async def simulate_fgts(
 ):
     """Simula FGTS em um ou todos os bancos disponíveis"""
     try:
+        cpf = cpf.replace(".", "").replace("-", "")
         return await service.simulate(cpf, bank)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

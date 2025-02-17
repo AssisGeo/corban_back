@@ -2,8 +2,11 @@ from fastapi import APIRouter, HTTPException, Depends
 from .schemas import SessionCreate, SessionResponse
 from .service import SessionService
 from memory import MongoDBMemoryManager
+import pytz
+from datetime import datetime
 import logging
 
+BR_TZ = pytz.timezone("America/Sao_Paulo")
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
@@ -30,7 +33,8 @@ async def create_session(
             if phone_info
             else ""
         )
-
+        created_at = datetime.now(BR_TZ)
+        print(created_at.isoformat())
         return SessionResponse(
             session_id=session.get("session_id", ""),
             name=customer_info.get("name"),
@@ -38,7 +42,7 @@ async def create_session(
             cpf=customer_info.get("cpf"),
             phone=phone,
             zip_code=customer_info.get("zip_code"),
-            created_at=session["created_at"].isoformat(),
+            created_at=created_at.isoformat(),
             status=session.get("status", "unknown"),
             source=session.get("source", "unknown"),
         )

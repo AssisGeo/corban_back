@@ -1,0 +1,88 @@
+generator client {
+  provider             = "prisma-client-py"
+  recursive_type_depth = -1
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("MONGODB_URL")
+}
+
+// User model based on authentication system
+model User {
+  id             String     @id @default(auto()) @map("_id") @db.ObjectId
+  email          String     @unique
+  name           String
+  hashed_password String
+  role           UserRole   @default(OPERATOR)
+  created_at     DateTime   @default(now())
+  last_login     DateTime?
+}
+
+// Enum for User Roles
+enum UserRole {
+  ADMIN
+  SUPERVISOR
+  OPERATOR
+}
+
+// Customer Session model
+model CustomerSession {
+  id                String        @id @default(auto()) @map("_id") @db.ObjectId
+  session_id        String        @unique
+  name              String?
+  cpf               String?
+  mother_name       String?
+  gender            String?
+  birth_date        String?
+  address_number    String?
+  zip_code          String?
+  phone_ddd         String?
+  phone_number      String?
+  email             String?
+  created_at        DateTime      @default(now())
+  last_updated      DateTime      @updatedAt
+  status            String        @default("active")
+  source            String?
+  metadata          Json?
+  messages          Json[]
+  simulation_data   Json?
+  proposal_data     Json?
+  contract_number   String?
+}
+
+// FGTS Simulation model
+model FGTSSimulation {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  cpf              String
+  bank_name        String
+  available_amount Float?
+  error_message    String?
+  success          Boolean
+  timestamp        DateTime  @default(now())
+  raw_response     Json?
+}
+
+// Proposal model
+model Proposal {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  session_id       String
+  financial_id     String
+  contract_number  String?
+  borrower_data    Json
+  document_data    Json
+  address_data     Json
+  bank_account_data Json
+  status           String    @default("pending")
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+}
+
+// Uploaded Documents model
+model UploadedDocument {
+  id               String    @id @default(auto()) @map("_id") @db.ObjectId
+  filename         String
+  content_chunks   Json[]
+  uploaded_at      DateTime  @default(now())
+  metadata         Json?
+}

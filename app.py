@@ -13,6 +13,8 @@ from services.vctex.router import router as vctex_router
 from services.cep.router import router as cep_router
 from services.sessions.router import router as session_router
 from services.inapi.router import router as inapi_router
+from services.bmg.router import router as bmg_router
+import uvicorn
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -61,8 +63,7 @@ app.include_router(vctex_router)
 app.include_router(cep_router)
 app.include_router(session_router)
 app.include_router(inapi_router)
+app.include_router(bmg_router)
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8002, timeout_keep_alive=300)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

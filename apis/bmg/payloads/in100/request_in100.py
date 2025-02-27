@@ -31,7 +31,7 @@ def generate_request_in100_payload(data: In100Request, login, password):
                     <senha>{password}</senha>
                     <cidade>{data.city}</cidade>
                     <cpf>{data.cpf}</cpf>
-                    <dataNascimento>{data.birthdate}</dataNascimento>
+                    <dataNascimento>{data.birthdate.strftime('%Y-%m-%dT%H:%M:%S')}</dataNascimento>
                     <ddd>{data.phone[:2]}</ddd>
                     <estado>{data.state}</estado>
                     <matricula>{data.benefit}</matricula>

@@ -6,7 +6,7 @@ def xml_to_dict(xml_string):
     root = ET.fromstring(xml_string)
 
     # Define a recursive function to convert XML to dict
-    def parse_xml_to_dict(element):
+    def parse_element(element):
         result = {}
 
         # Add element's attributes
@@ -15,7 +15,7 @@ def xml_to_dict(xml_string):
 
         # Process child elements
         for child in element:
-            child_data = xml_to_dict(child)
+            child_data = parse_element(child)
 
             # Handle the tag name
             tag = child.tag
@@ -35,6 +35,10 @@ def xml_to_dict(xml_string):
         if not result and element.text and element.text.strip():
             return element.text.strip()
 
+        # If there's text but also children/attributes, add text as a special key
+        elif element.text and element.text.strip():
+            result["_text"] = element.text.strip()
+
         return result
 
-    return parse_xml_to_dict(root)
+    return parse_element(root)

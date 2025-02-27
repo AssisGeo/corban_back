@@ -1,11 +1,12 @@
-import requests
 import os
+from fastapi import HTTPException
 
 from apis.bmg.payloads.in100.request_in100 import (
     generate_request_in100_payload,
     In100Request,
 )
 from apis.helpers.xml_to_dict import xml_to_dict
+import http.client
 
 
 class BmgApiClient:
@@ -15,21 +16,23 @@ class BmgApiClient:
         self.password = os.getenv("BMG_BOT_PASSWORD")
 
     def request_in100(self, data: In100Request):
-        headers = {"Content-Type": "text/xml; charset=utf-8", "SOAPAction": "add"}
-        # proxies = {
-        #     # "http": "http://77.37.40.109:3128/",
-        #     "https": "https://77.37.40.109:3129/",
-        # }
-
+        conn = http.client.HTTPSConnection("ws1.bmgconsig.com.br")
         payload = generate_request_in100_payload(data, self.login, self.password)
-        endpoint = f"{self.base_url}/ConsultaMargemIN100?wsdl"
-        response = requests.post(endpoint, headers=headers, data=payload)
-
-        if response.status_code == 200:
-            print(response.text)
-            body_data = xml_to_dict(response.text)
-            print(body_data)
-
+        headers = {"Content-Type": "text/xml", "SOAPAction": "add"}
+        conn.request(
+            "POST", "/webservices/ConsultaMargemIN100?wsdl=null", payload, headers
+        )
+        res = conn.getresponse()
+        body = res.read()
+        response = xml_to_dict(body)
+        if res.status == 200:
+            response = response["Body"]["inserirSolicitacaoResponse"][
+                "inserirSolicitacaoReturn"
+            ]
+            return {"message": response}
         else:
-            print(response.text)
-            return response.text
+            if "Fault" in response["Body"]:
+                detail = response["Body"]["Fault"]
+            else:
+                detail = response["Body"]
+            raise HTTPException(status_code=res.status, detail=detail)

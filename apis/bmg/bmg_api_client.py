@@ -5,6 +5,10 @@ from apis.bmg.payloads.in100.request_in100 import (
     generate_request_in100_payload,
     In100Request,
 )
+from apis.bmg.payloads.in100.in100_consult_filter import (
+    build_in100_consult_filter,
+    In100ConsultFilter
+)
 from apis.helpers.xml_to_dict import xml_to_dict
 import http.client
 
@@ -29,6 +33,27 @@ class BmgApiClient:
             response = response["Body"]["inserirSolicitacaoResponse"][
                 "inserirSolicitacaoReturn"
             ]
+            return {"message": response}
+        else:
+            if "Fault" in response["Body"]:
+                detail = response["Body"]["Fault"]
+            else:
+                detail = response["Body"]
+            raise HTTPException(status_code=res.status, detail=detail)
+
+    def in100_consult_filter(self, data: In100ConsultFilter):
+        conn = http.client.HTTPSConnection("ws1.bmgconsig.com.br")
+        payload = build_in100_consult_filter(data, self.login, self.password)
+        headers = {"Content-Type": "text/xml", "SOAPAction": "add"}
+        conn.request(
+            "POST", "/webservices/ConsultaMargemIN100?wsdl=null", payload, headers
+        )
+        res = conn.getresponse()
+        body = res.read()
+        response = xml_to_dict(body)
+        if res.status == 200:
+            response = response["Body"]["pesquisarResponse"]["pesquisarReturn"]
+            
             return {"message": response}
         else:
             if "Fault" in response["Body"]:

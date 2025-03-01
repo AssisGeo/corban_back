@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 from datetime import datetime
-
+import re
 
 class In100Request(BaseModel):
     cpf: str
@@ -17,7 +17,6 @@ class In100Request(BaseModel):
         if isinstance(value, str):
             return value.upper()
         return value
-
 
 def generate_request_in100_payload(data: In100Request, login, password):
     return f"""

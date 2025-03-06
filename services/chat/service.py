@@ -333,6 +333,7 @@ class ChatService:
                     or "Nome não informado"
                 )
                 send_by = doc.get("send_by") or customer_data.get("send_by") or "manual"
+                proposal_created_at = customer_data.get("proposal_created_at")
 
                 item = {
                     "contract_number": doc.get(
@@ -357,8 +358,11 @@ class ChatService:
                     "send_by": send_by,
                     "formalization_link": formalization_link,
                     "has_contract": bool(doc.get("contract_number")),
+                    "proposal_created_at": proposal_created_at
+                    or "Proposta aguardando envio",
                 }
                 pipeline_items.append(item)
+                print(item)
 
             return {
                 "items": pipeline_items,

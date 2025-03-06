@@ -210,11 +210,16 @@ class ChatService:
 
                         messages.append({"sender": sender, "content": content})
 
-            customer_info = document.get("customer_data", {}).get("customer_info", {})
-
+                customer_name = (
+                    document.get("customer_data", {})
+                    .get("customer_info", {})
+                    .get("name")
+                    or document.get("customer_data", {}).get("borrower", {}).get("name")
+                    or "Cliente não identificado"
+                )
             return {
                 "session_id": document.get("session_id"),
-                "customer_name": customer_info.get("name"),
+                "customer_name": customer_name,
                 "messages": messages,
                 "last_updated": document.get("last_updated"),
                 "contract_number": document.get("contract_number", ""),

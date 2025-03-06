@@ -9,9 +9,15 @@ def xml_to_dict(xml_string):
     def parse_element(element):
         result = {}
 
-        # Add element's attributes
+        # Check if element has xsi:nil="true"
+        nil_attr = "{http://www.w3.org/2001/XMLSchema-instance}nil"
+        if nil_attr in element.attrib and element.attrib[nil_attr] == "true":
+            return None
+
+        # Add element's attributes (except nil attribute)
         for key, value in element.attrib.items():
-            result[key] = value
+            if key != nil_attr:  # Skip the nil attribute
+                result[key] = value
 
         # Process child elements
         for child in element:

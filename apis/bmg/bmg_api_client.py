@@ -9,6 +9,10 @@ from apis.bmg.payloads.in100.in100_consult_filter import (
     build_in100_consult_filter,
     In100ConsultFilter,
 )
+from apis.bmg.payloads.in100.single_consult_request import (
+    build_single_consult_request_payload,
+    SingleConsultRequest,
+)
 from apis.bmg.payloads.benefit_card.save_proposal import (
     build_save_benefit_card_proposal_payload,
     SaveProposalRequest,
@@ -47,6 +51,29 @@ class BmgApiClient:
                 detail = response["Body"]
             raise HTTPException(status_code=res.status, detail=detail)
 
+    def single_consult_request(self, data: SingleConsultRequest):
+        conn = http.client.HTTPSConnection("ws1.bmgconsig.com.br")
+        payload = build_single_consult_request_payload(data, self.login, self.password)
+        headers = {"Content-Type": "text/xml", "SOAPAction": "add"}
+        conn.request(
+            "POST", "/webservices/ConsultaMargemIN100?wsdl=null", payload, headers
+        )
+        res = conn.getresponse()
+        body = res.read()
+        response = xml_to_dict(body)
+        if res.status == 200:
+            response["Body"]["realizarConsultaAvulsaResponse"][
+                "realizarConsultaAvulsaReturn"
+            ]
+            return {"data": response}
+
+        else:
+            if "Fault" in response["Body"]:
+                detail = response["Body"]["Fault"]
+            else:
+                detail = response["Body"]
+            raise HTTPException(status_code=res.status, detail=detail)
+
     def in100_consult_filter(self, data: In100ConsultFilter):
         conn = http.client.HTTPSConnection("ws1.bmgconsig.com.br")
         payload = build_in100_consult_filter(data, self.login, self.password)
@@ -58,9 +85,20 @@ class BmgApiClient:
         body = res.read()
         response = xml_to_dict(body)
         if res.status == 200:
-            response = response["Body"]["pesquisarResponse"]["pesquisarReturn"]
+            response = response["Body"]["pesquisarResponse"]["pesquisarReturn"][
+                "pesquisarReturn"
+            ]
 
-            return {"message": response}
+            if response["consulta"]["agenciaPagadora"]:
+                return {"data": response}
+
+            request_number = response["numeroSolicitacao"]
+            token = data.token
+
+            form_data = SingleConsultRequest(request_number=request_number, token=token)
+
+            return self.single_consult_request(data=form_data)
+
         else:
             if "Fault" in response["Body"]:
                 detail = response["Body"]["Fault"]

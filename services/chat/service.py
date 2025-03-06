@@ -332,6 +332,7 @@ class ChatService:
                     or customer_data.get("borrower", {}).get("name")
                     or "Nome não informado"
                 )
+                send_by = doc.get("send_by") or customer_data.get("send_by") or "manual"
 
                 item = {
                     "contract_number": doc.get(
@@ -353,7 +354,7 @@ class ChatService:
                         ),
                         "iof_fee": extract_value(simulation_data.get("iof_fee")),
                     },
-                    "send_by": doc.get("send_by", "manual"),
+                    "send_by": send_by,
                     "formalization_link": formalization_link,
                     "has_contract": bool(doc.get("contract_number")),
                 }

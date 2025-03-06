@@ -47,7 +47,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://app.ar4finance.com.br"],
+    allow_origins=["*"],
+    # allow_origins=["https://app.ar4finance.com.br"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

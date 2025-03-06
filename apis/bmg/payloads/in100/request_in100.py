@@ -1,6 +1,7 @@
 from pydantic import BaseModel, field_validator
 from datetime import datetime
-import re
+from utils.format_string_datetime import format_string_datetime
+
 
 class In100Request(BaseModel):
     cpf: str
@@ -18,6 +19,7 @@ class In100Request(BaseModel):
             return value.upper()
         return value
 
+
 def generate_request_in100_payload(data: In100Request, login, password):
     return f"""
     <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
@@ -30,7 +32,7 @@ def generate_request_in100_payload(data: In100Request, login, password):
                     <senha>{password}</senha>
                     <cidade>{data.city}</cidade>
                     <cpf>{data.cpf}</cpf>
-                    <dataNascimento>{data.birthdate.strftime('%Y-%m-%dT%H:%M:%S')}</dataNascimento>
+                    <dataNascimento>{format_string_datetime(data.birthdate)}</dataNascimento>
                     <ddd>{data.phone[:2]}</ddd>
                     <estado>{data.state}</estado>
                     <matricula>{data.benefit}</matricula>

@@ -12,6 +12,9 @@ from services.simulations.banks_router import router as banks_router
 from services.vctex.router import router as vctex_router
 from services.cep.router import router as cep_router
 from services.sessions.router import router as session_router
+from services.inapi.router import router as inapi_router
+from services.bmg.router import router as bmg_router
+import uvicorn
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -44,7 +47,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://app.ar4finance.com.br"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,8 +62,8 @@ app.include_router(banks_router)
 app.include_router(vctex_router)
 app.include_router(cep_router)
 app.include_router(session_router)
+app.include_router(inapi_router)
+app.include_router(bmg_router)
 
 if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8002, timeout_keep_alive=300)
+    uvicorn.run("app:app", host="0.0.0.0", port=8002, reload=True)

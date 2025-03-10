@@ -365,7 +365,6 @@ class ChatService:
                     "phone_number": phone_number,
                 }
                 pipeline_items.append(item)
-                print(item)
 
             return {
                 "items": pipeline_items,

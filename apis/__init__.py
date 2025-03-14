@@ -8,4 +8,6 @@ from .bmg.bmg_api_client import (
     In100Request,
     In100ConsultFilter,
     SingleConsultRequest,
+    OfferRequest,
 )
+from .bmg.payloads.benefit_card.get_offer import CustomerFirstStep

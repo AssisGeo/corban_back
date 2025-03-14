@@ -7,6 +7,21 @@ def xml_to_dict(xml_string):
 
     # Define a recursive function to convert XML to dict
     def parse_element(element):
+        # Special case for geraScriptReturn with specific attributes
+        tag = element.tag
+        if "}" in tag:
+            tag = tag.split("}", 1)[1]
+
+        # Check if this is the geraScriptReturn element with the specific attributes
+        if (
+            tag == "geraScriptReturn"
+            and "{http://www.w3.org/2001/XMLSchema-instance}type" in element.attrib
+            and element.attrib["{http://www.w3.org/2001/XMLSchema-instance}type"]
+            == "soapenc:string"
+        ):
+            # Return just the text content
+            return element.text.strip() if element.text else ""
+
         result = {}
 
         # Check if element has xsi:nil="true"

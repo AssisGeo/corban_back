@@ -34,7 +34,7 @@ async def create_session(
             else ""
         )
         created_at = datetime.now(BR_TZ)
-        print(created_at.isoformat())
+        # print(created_at.isoformat())
         return SessionResponse(
             session_id=session.get("session_id", ""),
             name=customer_info.get("name"),

@@ -362,7 +362,7 @@ class ChatService:
                     or "Proposta aguardando envio",
                 }
                 pipeline_items.append(item)
-                print(item)
+                # print(item)
 
             return {
                 "items": pipeline_items,

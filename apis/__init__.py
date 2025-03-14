@@ -11,3 +11,9 @@ from .bmg.bmg_api_client import (
     OfferRequest,
 )
 from .bmg.payloads.benefit_card.get_offer import CustomerFirstStep
+from .bmg.payloads.benefit_card.save_proposal import (
+    IdentityDocument,
+    Customer,
+    Address,
+    SaveProposalRequest,
+)

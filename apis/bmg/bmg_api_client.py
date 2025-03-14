@@ -140,7 +140,9 @@ class BmgApiClient:
 
     def get_card_offer(self, data: OfferRequest):
         conn = http.client.HTTPSConnection("ws1.bmgconsig.com.br")
-        payload = build_get_offer_payload(data, self.login, self.password)
+        payload = build_get_offer_payload(
+            data, self.login, self.password, self.login_consig, self.password_consig
+        )
         headers = {"Content-Type": "text/xml", "SOAPAction": "add"}
         conn.request("POST", "/webservices/CartaoBeneficio?wsdl=null", payload, headers)
         res = conn.getresponse()
@@ -225,7 +227,7 @@ class BmgApiClient:
             response = response["Body"]["gravarPropostaCartaoResponse"][
                 "gravarPropostaCartaoReturn"
             ]
-            return {"message": response}
+            return response
         else:
             if "Fault" in response["Body"]:
                 detail = response["Body"]["Fault"]

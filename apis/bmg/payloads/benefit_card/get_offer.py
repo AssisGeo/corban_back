@@ -26,7 +26,9 @@ class OfferRequest(BaseModel):
     income_value: Decimal
 
 
-def build_get_offer_payload(data: OfferRequest, login, password):
+def build_get_offer_payload(
+    data: OfferRequest, login, password, loginConsig, senhaConsig
+):
     customer = data.customer
 
     return f"""
@@ -91,13 +93,13 @@ def build_get_offer_payload(data: OfferRequest, login, password):
                 <codigoServico xsi:type="soapenc:string">141</codigoServico>
                 <cpf xsi:type="soapenc:string">{customer.cpf}</cpf>
                 <dataRenda xsi:type="xsd:dateTime">2025-02-05T00:00:00</dataRenda>
-                <loginConsig xsi:type="soapenc:string">RICHARD.MARTINS</loginConsig>
+                <loginConsig xsi:type="soapenc:string">{loginConsig}</loginConsig>
                 <formaCredito xsi:type="xsd:int">2</formaCredito>
                 <codigoFormaEnvioTermo xsi:type="soapenc:string">14</codigoFormaEnvioTermo>
                 <finalidadeCredito xsi:type="xsd:int">1</finalidadeCredito>
                 <margem xsi:type="xsd:double">{data.card_avaiable_margin}</margem>
                 <matricula xsi:type="soapenc:string">{data.benefit}</matricula>
-                <senhaConsig xsi:type="soapenc:string">AR42025@</senhaConsig>
+                <senhaConsig xsi:type="soapenc:string">{senhaConsig}</senhaConsig>
                 <tipoBeneficio xsi:type="soapenc:int">{data.benefit_type}</tipoBeneficio>
                 <tipoDomicilioBancario xsi:type="soapenc:short">1</tipoDomicilioBancario>
                 <token xsi:type="soapenc:string"></token>

@@ -1,7 +1,13 @@
 from fastapi import APIRouter
 from apis import BmgApiClient, In100Request, In100ConsultFilter, SingleConsultRequest
 
-from services.bmg.card_service import CardService, FirstStepRequest, SecondStepRequest
+from services.bmg.card_service import (
+    CardService,
+    FirstStepRequest,
+    SecondStepRequest,
+    ThirdStepRequest,
+    FourthStepRequest,
+)
 
 router = APIRouter(prefix="/api/v1/bmg", tags=["bmg"])
 
@@ -42,5 +48,21 @@ async def card_first_step(data: FirstStepRequest):
 async def card_second_step(data: SecondStepRequest):
     card_service = CardService()
     response = await card_service.second_step(data)
+
+    return response
+
+
+@router.post("/card/third_step")
+async def card_third_step(data: ThirdStepRequest):
+    card_service = CardService()
+    response = await card_service.third_step(data)
+
+    return response
+
+
+@router.post("/card/fourth_step")
+async def card_fourth_step(data: FourthStepRequest):
+    card_service = CardService()
+    response = await card_service.fourth_step(data)
 
     return response

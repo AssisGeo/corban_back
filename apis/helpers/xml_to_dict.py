@@ -15,6 +15,7 @@ def xml_to_dict(xml_string):
         # Check if this is the geraScriptReturn element with the specific attributes
         if (
             tag == "geraScriptReturn"
+            or tag == "gravarPropostaCartaoReturn"
             and "{http://www.w3.org/2001/XMLSchema-instance}type" in element.attrib
             and element.attrib["{http://www.w3.org/2001/XMLSchema-instance}type"]
             == "soapenc:string"

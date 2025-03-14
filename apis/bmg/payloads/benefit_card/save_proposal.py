@@ -25,7 +25,7 @@ class IdentityDocument(BaseModel):
 
 
 class Address(BaseModel):
-    zipCode: str
+    zip_code: str
     street: str
     number: str
     neighborhood: str
@@ -36,10 +36,11 @@ class Address(BaseModel):
 
 class Customer(BaseModel):
     cellphone: str
+    phone: Optional[str] = ""
     city_of_birth: str
     cpf: str
-    date_of_birth: str
-    email: Optional[EmailStr] = ""
+    birthdate: datetime
+    email: EmailStr
     address: Address
     marital_status: Optional[str] = "S"
     educational_level: Optional[str] = "7"
@@ -48,6 +49,7 @@ class Customer(BaseModel):
     name: str
     spouse_name: Optional[str] = ""
     mother_name: str
+    father_name: Optional[str] = "Não declarado"
     ppe: Optional[bool] = False
     gender: str
     state_of_birth: str
@@ -104,11 +106,11 @@ def build_save_benefit_card_proposal_payload(
         </celular1>
         <cidadeNascimento xsi:type="soapenc:string">{customer.city_of_birth}</cidadeNascimento>
         <cpf xsi:type="soapenc:string">{customer.cpf}</cpf>
-        <dataNascimento xsi:type="xsd:dateTime">{format_string_datetime(customer.date_of_birth)}</dataNascimento>
+        <dataNascimento xsi:type="xsd:dateTime">{format_string_datetime(customer.birthdate)}</dataNascimento>
         <email xsi:type="soapenc:string">{customer.email}</email>
         <endereco xsi:type="web:EnderecoParamter">
             <bairro xsi:type="soapenc:string">{address.neighborhood}</bairro>
-            <cep xsi:type="soapenc:string">{address.zipCode}</cep>
+            <cep xsi:type="soapenc:string">{address.zip_code}</cep>
             <cidade xsi:type="soapenc:string">{address.city}</cidade>
             <complemento xsi:type="soapenc:string">{address.complement}</complemento>
             <logradouro xsi:type="soapenc:string">{address.street}</logradouro>

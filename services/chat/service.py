@@ -332,6 +332,8 @@ class ChatService:
                     or customer_data.get("borrower", {}).get("name")
                     or "Nome não informado"
                 )
+
+                phone_number = doc.get("session_id")
                 send_by = doc.get("send_by") or customer_data.get("send_by") or "manual"
                 proposal_created_at = customer_data.get("proposal_created_at")
 
@@ -360,9 +362,9 @@ class ChatService:
                     "has_contract": bool(doc.get("contract_number")),
                     "proposal_created_at": proposal_created_at
                     or "Proposta aguardando envio",
+                    "phone_number": phone_number,
                 }
                 pipeline_items.append(item)
-                # print(item)
 
             return {
                 "items": pipeline_items,
@@ -470,4 +472,376 @@ class ChatService:
 
         except Exception as e:
             logger.error(f"Erro ao obter métricas de mensagens: {str(e)}")
+            raise
+
+    async def get_contract_details(self, session_id: str) -> Dict[str, Any]:
+        """
+        Obtém detalhes completos do contrato/proposta para um chat específico.
+
+        Args:
+            session_id: Identificador único da sessão
+
+        Returns:
+            Dict com informações detalhadas sobre o contrato, cliente, dados financeiros e formalização
+
+        Raises:
+            ValueError: Se o chat não for encontrado
+            Exception: Para outros erros durante o processamento
+        """
+        try:
+            # Buscar o documento da sessão
+            document = self.memory_manager.collection.find_one(
+                {"session_id": session_id}
+            )
+            if not document:
+                raise ValueError(f"Chat não encontrado: {session_id}")
+
+            logger.debug(f"Documento encontrado: {session_id}")
+
+            # Extrair dados do cliente
+            customer_data = document.get("customer_data", {})
+            customer_info = customer_data.get("customer_info", {})
+            borrower = customer_data.get("borrower", {})
+            proposal_data = document.get("proposal_data", {})
+
+            # Tentar extrair informações do cliente de todas as fontes possíveis
+            customer_name = (
+                customer_info.get("name")
+                or borrower.get("name")
+                or document.get("name", "")
+            )
+
+            # Buscar CPF diretamente em customer_data (onde foi visto na depuração)
+            customer_cpf = customer_data.get("cpf", "")
+
+            # Se não encontrou, tentar outros locais
+            if not customer_cpf:
+                customer_cpf = (
+                    customer_info.get("cpf")
+                    or borrower.get("cpf")
+                    or document.get("cpf")
+                    or proposal_data.get("cpf")
+                    or ""
+                )
+
+            customer_email = (
+                borrower.get("email")
+                or customer_info.get("email")
+                or document.get("email", "")
+            )
+
+            # Montar objeto de resposta
+            contract_number = document.get("contract_number", "")
+            has_contract = bool(contract_number)
+
+            # Determinar o estágio atual
+            def determine_stage(data: Dict[str, Any]) -> str:
+                """Determina o estágio atual com base nas flags de progresso"""
+                stage_flags = [
+                    ("post_formalize", data.get("post_formalize_confirmed")),
+                    ("formalize", data.get("formalize_confirmed")),
+                    ("send_proposal", data.get("proposal_sent") or has_contract),
+                    ("collect_document", data.get("document_confirmed")),
+                    ("collect_bank", data.get("bank_data_confirmed")),
+                    ("collect_address", data.get("address_confirmed")),
+                    ("collect_personal", data.get("personal_data_confirmed")),
+                    (
+                        "simulate",
+                        data.get("simulation_complete")
+                        or bool(document.get("simulation_data")),
+                    ),
+                    ("check_cpf", data.get("cpf_validated")),
+                    ("start", True),  # Estágio padrão
+                ]
+
+                for stage, flag in stage_flags:
+                    if flag:
+                        return stage
+
+                return "start"
+
+            # Extrair dados financeiros
+            simulation_data = document.get("simulation_data", {})
+
+            # Obter dados de endereço, se disponíveis
+            address = {}
+            if "address" in customer_data:
+                address = customer_data.get("address", {})
+            elif "address" in document:
+                address = document.get("address", {})
+            elif "address" in proposal_data:
+                address = proposal_data.get("address", {})
+            elif "zip_code" in customer_info:
+                address = {
+                    "zipCode": customer_info.get("zip_code"),
+                    "street": customer_info.get("street", ""),
+                    "number": customer_info.get("address_number", ""),
+                    "neighborhood": customer_info.get("neighborhood", ""),
+                    "city": customer_info.get("city", ""),
+                    "state": customer_info.get("state", ""),
+                }
+
+            # Validar se address tem o formato esperado
+            if not isinstance(address, dict):
+                address = {}
+
+            # Obter informações de formalização - verificar primeiro em customer_data.formalization_link
+            formalization_link = customer_data.get("formalization_link", "")
+
+            # Se não encontrou, tentar outros locais
+            if not formalization_link:
+                formalization_link = (
+                    document.get("formalization_link", "")
+                    or document.get("proposal_data", {}).get("formalization_link", "")
+                    or document.get("contractFormalizationLink", "")
+                )
+
+            # Verificar status de formalização
+            formalization_status = "pending"
+            if customer_data.get("formalize_confirmed") or document.get(
+                "formalization_completed"
+            ):
+                formalization_status = "completed"
+            elif customer_data.get("formalization_initiated"):
+                formalization_status = "in_progress"
+
+            # Obter datas relevantes - verificando múltiplos caminhos
+            created_at = None
+            for path in [
+                "created_at",
+                "metadata.created_at",
+                "customer_data.created_at",
+                "proposal_data.created_at",
+            ]:
+                parts = path.split(".")
+                value = document
+                for part in parts:
+                    if isinstance(value, dict) and part in value:
+                        value = value[part]
+                    else:
+                        value = None
+                        break
+                if value:
+                    created_at = value
+                    break
+
+            updated_at = None
+            for path in [
+                "last_updated",
+                "updated_at",
+                "metadata.updated_at",
+                "customer_data.updated_at",
+            ]:
+                parts = path.split(".")
+                value = document
+                for part in parts:
+                    if isinstance(value, dict) and part in value:
+                        value = value[part]
+                    else:
+                        value = None
+                        break
+                if value:
+                    updated_at = value
+                    break
+
+            # Buscar especificamente customer_data.proposal_created_at que foi visto no log
+            proposal_sent_at = customer_data.get("proposal_created_at")
+
+            # Se não encontrou, tentar outros caminhos
+            if not proposal_sent_at:
+                for path in [
+                    "proposal_sent_at",
+                    "proposal_data.created_at",
+                    "proposal_data.sent_at",
+                ]:
+                    parts = path.split(".")
+                    value = document
+                    for part in parts:
+                        if isinstance(value, dict) and part in value:
+                            value = value[part]
+                        else:
+                            value = None
+                            break
+                    if value:
+                        proposal_sent_at = value
+                        break
+
+            formalization_completed_at = document.get(
+                "formalization_completed_at", None
+            )
+
+            # Tratar dados de data para serialização
+            def format_date(date_obj):
+                if date_obj:
+                    if hasattr(date_obj, "isoformat"):
+                        return date_obj.isoformat()
+                    return str(date_obj)
+                return None
+
+            # Dados para histórico de eventos
+            events = []
+
+            # Evento de criação da sessão
+            if created_at:
+                events.append(
+                    {
+                        "type": "created",
+                        "description": "Sessão iniciada",
+                        "timestamp": format_date(created_at),
+                    }
+                )
+
+            # Evento de simulação
+            simulation_timestamp = None
+            if "timestamp" in simulation_data:
+                simulation_timestamp = simulation_data.get("timestamp")
+            elif "created_at" in simulation_data:
+                simulation_timestamp = simulation_data.get("created_at")
+            elif "simulation_date" in document:
+                simulation_timestamp = document.get("simulation_date")
+
+            if document.get("simulation_data"):
+                events.append(
+                    {
+                        "type": "simulation",
+                        "description": "Simulação realizada",
+                        "timestamp": format_date(simulation_timestamp)
+                        or format_date(updated_at),
+                    }
+                )
+
+            # Evento de proposta
+            if contract_number:
+                events.append(
+                    {
+                        "type": "proposal",
+                        "description": f"Proposta criada: {contract_number}",
+                        "timestamp": format_date(proposal_sent_at)
+                        or format_date(updated_at),
+                    }
+                )
+
+            # Evento de formalização
+            if formalization_status in ["in_progress", "completed"]:
+                events.append(
+                    {
+                        "type": "formalization",
+                        "description": (
+                            "Formalização iniciada"
+                            if formalization_status == "in_progress"
+                            else "Formalização concluída"
+                        ),
+                        "timestamp": format_date(
+                            formalization_completed_at or updated_at
+                        ),
+                    }
+                )
+
+            # Verificar outros eventos importantes armazenados no documento
+            if "events" in document and isinstance(document.get("events"), list):
+                for event in document.get("events"):
+                    if (
+                        isinstance(event, dict)
+                        and "type" in event
+                        and "description" in event
+                    ):
+                        if "timestamp" in event:
+                            event["timestamp"] = format_date(event["timestamp"])
+                        events.append(event)
+
+            # Extrair mais metadados
+            metadata = {
+                "source": document.get("source", ""),
+                "platform": document.get("metadata", {}).get("platform", ""),
+                "send_by": customer_data.get("send_by")
+                or document.get("send_by", "manual"),
+                "origin": document.get("metadata", {}).get("origin", ""),
+                "form_type": document.get("metadata", {}).get("form_type", ""),
+                "current_state": document.get("current_state", ""),
+            }
+
+            # Extrair dados do banco - primeiro de customer_data.bank_data que foi visto no log
+            bank_data = customer_data.get("bank_data", {})
+
+            # Se não encontrou, tentar outros locais
+            if not bank_data:
+                bank_data = (
+                    document.get("disbursementBankAccount", {})
+                    or customer_data.get("disbursementBankAccount", {})
+                    or proposal_data.get("disbursementBankAccount", {})
+                    or {}
+                )
+
+            # Construir resposta básica
+            response = {
+                "contract": {
+                    "contract_number": contract_number or "Não disponível",
+                    "status": determine_stage(customer_data),
+                    "has_contract": has_contract,
+                    "stage": determine_stage(customer_data),
+                    "financial_id": document.get("financial_id", "")
+                    or simulation_data.get("financialId", ""),
+                    "created_at": format_date(created_at),
+                    "updated_at": format_date(updated_at),
+                },
+                "customer": {
+                    "name": customer_name,
+                    "cpf": customer_cpf,
+                    "phone_number": session_id,
+                    "email": customer_email,
+                    "address": address,
+                    "bank_data": bank_data,
+                    "document": customer_data.get("document", {}),
+                },
+                "financial": {
+                    "total_released": simulation_data.get("total_released", ""),
+                    "total_to_pay": simulation_data.get("total_to_pay", ""),
+                    "interest_rate": simulation_data.get("interest_rate", ""),
+                    "iof_fee": simulation_data.get("iof_fee", ""),
+                },
+                "formalization": {
+                    "link": formalization_link,
+                    "status": formalization_status,
+                    "sent_at": format_date(proposal_sent_at),
+                    "completed_at": format_date(formalization_completed_at),
+                    "initiated": customer_data.get("formalization_initiated", False),
+                },
+                "events": events,
+                "metadata": metadata,
+            }
+
+            # Verificar se existem parcelas antes de adicionar
+            installments = None
+
+            # Procurar em vários lugares possíveis
+            for path in [
+                "installments",
+                "proposal_data.installments",
+                "simulation_data.installments",
+            ]:
+                parts = path.split(".")
+                value = document
+                for part in parts:
+                    if isinstance(value, dict) and part in value:
+                        value = value[part]
+                    else:
+                        value = None
+                        break
+                if value and isinstance(value, list) and len(value) > 0:
+                    installments = value
+                    break
+
+            # Apenas adicionar parcelas se realmente existirem
+            if installments:
+                response["financial"]["installments"] = installments
+
+            # Log para debug
+            logger.info(f"Detalhes do contrato recuperados para sessão: {session_id}")
+
+            return response
+
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Erro ao obter detalhes do contrato: {str(e)}")
             raise

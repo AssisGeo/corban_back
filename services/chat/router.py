@@ -2,7 +2,11 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional, Dict, Any
 from datetime import datetime
 from .service import ChatService
-from .schemas import ChatResponse, ChatStatsResponse
+from .schemas import (
+    ChatResponse,
+    ChatStatsResponse,
+    ContractDetailsResponse,
+)
 from memory import MongoDBMemoryManager
 
 router = APIRouter(prefix="/api/v1/chats", tags=["chats"])
@@ -33,6 +37,19 @@ async def get_pipeline_data(
     try:
         pipeline_data = await service.get_pipeline_data(skip, limit, cpf_search=cpf)
         return pipeline_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{session_id}/details", response_model=ContractDetailsResponse)
+async def get_chat_contract_details(
+    session_id: str, service: ChatService = Depends(get_chat_service)
+):
+    """Retorna detalhes completos do contrato/proposta para um chat específico"""
+    try:
+        return await service.get_contract_details(session_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

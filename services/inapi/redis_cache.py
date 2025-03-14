@@ -16,7 +16,7 @@ def get_redis_connection():
 def add_in100_to_cache(id, in_100_data):
     r = get_redis_connection()
 
-    r.set(id, json.dumps(in_100_data), ex=60 * 60 * 24 * 7)  # 7 days in_100_data)
+    r.set(id, json.dumps(in_100_data), ex=60 * 60 * 24 * 30)  # 30 days in_100_data)
 
 
 def get_in100_from_cache(id):

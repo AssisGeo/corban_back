@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from apis import BmgApiClient, In100Request, In100ConsultFilter, SingleConsultRequest
+from services.bmg.repository.mongo_db import BMGMongoRepository
 
 from services.bmg.card_service import (
     CardService,
@@ -23,7 +24,11 @@ async def request_in100(data: In100Request):
 @router.post("/in100_consult_filter")
 async def in100_consult_filter(data: In100ConsultFilter):
     bmg_client = BmgApiClient()
-    response = bmg_client.in100_consult_filter(data)
+    bmg_client.in100_consult_filter(data)
+
+    repository = BMGMongoRepository()
+
+    response = repository.get_from_collection_by_cpf("cards", data.cpf)
 
     return response
 

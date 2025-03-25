@@ -1,9 +1,11 @@
 from pydantic import BaseModel
+from typing import Optional
 
 
 class SingleConsultRequest(BaseModel):
     request_number: str
     token: str
+    cpf: Optional[str] = None
 
 
 def build_single_consult_request_payload(data: SingleConsultRequest, login, password):

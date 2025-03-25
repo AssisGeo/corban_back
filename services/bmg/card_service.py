@@ -75,8 +75,16 @@ class CardService:
         form_data = OfferRequest(
             bank_code=in100_data["cbcIfPagadora"],
             bank_agency=in100_data["agenciaPagadora"],
-            bank_account=in100_data["contaCorrente"][:-1],
-            bank_account_digit=in100_data["contaCorrente"][-1],
+            bank_account=(
+                "3054258"
+                if not in100_data["contaCorrente"]
+                else in100_data["contaCorrente"][:-1]
+            ),
+            bank_account_digit=(
+                "1"
+                if not in100_data["contaCorrente"]
+                else in100_data["contaCorrente"][-1]
+            ),
             customer=customer_data,
             benefit=user_data["benefit"],
             benefit_type=in100_data["especie"],

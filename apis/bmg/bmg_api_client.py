@@ -127,7 +127,7 @@ class BmgApiClient:
             request_number = response["numeroSolicitacao"]
             token = data.token
 
-            form_data = SingleConsultRequest(request_number=request_number, token=token)
+            form_data = SingleConsultRequest(request_number=request_number, token=token, cpf=data.cpf)
 
             return self.single_consult_request(data=form_data)
 
@@ -179,7 +179,7 @@ class BmgApiClient:
                             "cards", user_data["id"], data=simulation_data
                         )
 
-                    return {"data": response}
+                    return response
 
                 else:
                     return HTTPException(

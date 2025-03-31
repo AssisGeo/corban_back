@@ -2,6 +2,7 @@ from datetime import datetime
 import logging
 from typing import Dict, Any, Optional
 from memory import MongoDBMemoryManager
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,25 @@ class ChatService:
             raise
 
     async def list_chats(
-        self, skip: int = 0, limit: int = 20, search: Optional[str] = None
+        self, page: int = 1, per_page: int = 20, search: Optional[str] = None
     ) -> Dict[str, Any]:
+        """
+        Lista chats com paginação.
+
+        Args:
+            page: Número da página (começa em 1)
+            per_page: Número de itens por página
+            search: Termo de busca opcional
+
+        Returns:
+            Dict com itens paginados e informações de paginação
+        """
         try:
+            page = max(1, page)
+            per_page = max(1, per_page)
+
+            skip = (page - 1) * per_page
+
             base_query = {
                 "$and": [{"messages": {"$exists": True}}, {"messages": {"$ne": []}}]
             }
@@ -39,15 +56,23 @@ class ChatService:
                             "$options": "i",
                         }
                     },
+                    {
+                        "customer_data.borrower.name": {
+                            "$regex": search,
+                            "$options": "i",
+                        }
+                    },
+                    {"cpf": {"$regex": search, "$options": "i"}},
                 ]
 
             total = self.memory_manager.collection.count_documents(base_query)
+            total_pages = math.ceil(total / per_page) if total > 0 else 1
 
             chats = list(
                 self.memory_manager.collection.find(base_query)
                 .sort("last_updated", -1)
                 .skip(skip)
-                .limit(limit)
+                .limit(per_page)
             )
 
             items = []
@@ -65,8 +90,11 @@ class ChatService:
             return {
                 "items": items,
                 "total": total,
-                "page": (skip // limit) + 1,
-                "pages": -(-total // limit) if total > 0 else 1,
+                "page": page,
+                "per_page": per_page,
+                "pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
             }
 
         except Exception as e:
@@ -180,10 +208,18 @@ class ChatService:
             raise
 
     def _convert_document_to_chat(self, document: Dict) -> Dict[str, Any]:
+        """
+        Converte um documento do MongoDB para o formato esperado pelo frontend.
+
+        Args:
+            document: Documento do MongoDB
+
+        Returns:
+            Dict formatado ou None em caso de erro
+        """
         try:
             messages = []
             for msg in document.get("messages", []):
-                # Extrai o sender baseado no tipo da mensagem
                 if isinstance(msg, dict):
                     sender = None
                     content = None
@@ -210,13 +246,13 @@ class ChatService:
 
                         messages.append({"sender": sender, "content": content})
 
-                customer_name = (
-                    document.get("customer_data", {})
-                    .get("customer_info", {})
-                    .get("name")
-                    or document.get("customer_data", {}).get("borrower", {}).get("name")
-                    or "Cliente não identificado"
-                )
+            customer_name = (
+                document.get("customer_data", {}).get("customer_info", {}).get("name")
+                or document.get("customer_data", {}).get("borrower", {}).get("name")
+                or document.get("name")
+                or "Cliente não identificado"
+            )
+
             return {
                 "session_id": document.get("session_id"),
                 "customer_name": customer_name,
@@ -230,52 +266,63 @@ class ChatService:
             return None
 
     async def get_pipeline_data(
-        self, skip: int = 0, limit: int = 20, cpf_search: Optional[str] = None
+        self, page: int = 1, per_page: int = 20, cpf_search: Optional[str] = None
     ) -> Dict[str, Any]:
-        try:
-            query_with_contract = {"contract_number": {"$exists": True}}
-            if cpf_search:
-                query_with_contract["customer_data.customer_info.cpf"] = {
-                    "$regex": cpf_search,
-                    "$options": "i",
-                }
+        """
+        Obtém dados da pipeline com paginação, tratando todos os documentos como uma única coleção.
 
-            query_without_contract = {"contract_number": {"$exists": False}}
+        Args:
+            page: Número da página (começa em 1)
+            per_page: Número de itens por página
+            cpf_search: CPF opcional para filtrar resultados
+
+        Returns:
+            Dict com itens paginados e informações de paginação
+        """
+        try:
+            page = max(1, page)
+            per_page = max(1, per_page)
+
+            skip = (page - 1) * per_page
+
+            base_query = {}
             if cpf_search:
-                query_without_contract["customer_data.customer_info.cpf"] = {
+                base_query["customer_data.customer_info.cpf"] = {
                     "$regex": cpf_search,
                     "$options": "i",
                 }
 
             total_with_contract = self.memory_manager.collection.count_documents(
-                query_with_contract
+                {**base_query, "contract_number": {"$exists": True}}
             )
             total_without_contract = self.memory_manager.collection.count_documents(
-                query_without_contract
+                {**base_query, "contract_number": {"$exists": False}}
             )
             total = total_with_contract + total_without_contract
 
+            pipeline = [
+                {"$match": base_query},
+                {
+                    "$addFields": {
+                        "has_contract": {
+                            "$cond": [
+                                {"$ifNull": ["$contract_number", False]},
+                                True,
+                                False,
+                            ]
+                        }
+                    }
+                },
+                {"$sort": {"has_contract": -1, "created_at": -1}},
+                {"$skip": skip},
+                {"$limit": per_page},
+            ]
+
+            # Executar pipeline
+            chats = list(self.memory_manager.collection.aggregate(pipeline))
+
+            # Processar os resultados
             pipeline_items = []
-
-            chats_with_contract = list(
-                self.memory_manager.collection.find(query_with_contract)
-                .sort("created_at", -1)
-                .skip(skip)
-                .limit(limit)
-            )
-
-            if len(chats_with_contract) < limit:
-                remaining_limit = limit - len(chats_with_contract)
-                chats_without_contract = list(
-                    self.memory_manager.collection.find(query_without_contract)
-                    .sort("created_at", -1)
-                    .skip(0)
-                    .limit(remaining_limit)
-                )
-                chats = chats_with_contract + chats_without_contract
-            else:
-                chats = chats_with_contract
-
             for doc in chats:
                 customer_data = doc.get("customer_data", {})
 
@@ -366,13 +413,18 @@ class ChatService:
                 }
                 pipeline_items.append(item)
 
+            total_pages = math.ceil(total / per_page) if total > 0 else 1
+
             return {
                 "items": pipeline_items,
                 "total": total,
                 "total_with_contract": total_with_contract,
                 "total_without_contract": total_without_contract,
-                "page": skip // limit + 1,
-                "pages": (total + limit - 1) // limit,
+                "page": page,
+                "per_page": per_page,
+                "pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
             }
         except Exception as e:
             logger.error(f"Erro ao obter dados da esteira: {str(e)}")
@@ -393,8 +445,28 @@ class ChatService:
             "data": [doc["count"] for doc in result],
         }
 
-    async def get_messages_metrics(self):
+    async def get_messages_metrics(self, page: int = 1, per_page: int = 20):
         try:
+            page = max(1, page)
+            per_page = max(1, per_page)
+
+            skip = (page - 1) * per_page
+
+            count_pipeline = [
+                {
+                    "$match": {
+                        "messages": {"$exists": True, "$ne": []},
+                    }
+                },
+                {"$unwind": "$messages"},
+                {"$count": "total"},
+            ]
+
+            count_result = list(
+                self.memory_manager.collection.aggregate(count_pipeline)
+            )
+            total_messages = count_result[0]["total"] if count_result else 0
+
             pipeline = [
                 {
                     "$match": {
@@ -409,6 +481,9 @@ class ChatService:
                         "hour": {"$hour": {"$toDate": "$messages.timestamp"}},
                     }
                 },
+                {"$sort": {"timestamp": -1}},
+                {"$skip": skip},
+                {"$limit": per_page},
                 {
                     "$group": {
                         "_id": {"weekDay": "$dayOfWeek", "hour": "$hour"},
@@ -420,12 +495,11 @@ class ChatService:
 
             result = list(self.memory_manager.collection.aggregate(pipeline))
 
-            # Inicializa contadores
             hours = {i: 0 for i in range(24)}
             weekdays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
             weekday_data = {day: 0 for day in weekdays}
 
-            total_messages = 0
+            page_messages_count = 0
             peak_hour = {"hour": 0, "count": 0}
             peak_day = {"day": "", "count": 0}
 
@@ -435,7 +509,7 @@ class ChatService:
                     hour = doc["_id"].get("hour")
                     weekday_idx = doc["_id"].get("weekDay")
                     count = doc["count"]
-                    total_messages += count
+                    page_messages_count += count
 
                     if hour is not None and 0 <= hour < 24:
                         hours[hour] += count
@@ -448,9 +522,12 @@ class ChatService:
                         if weekday_data[weekday] > peak_day["count"]:
                             peak_day = {"day": weekday, "count": weekday_data[weekday]}
 
-            # Calcula médias
-            avg_per_hour = total_messages / 24 if total_messages > 0 else 0
-            avg_per_day = total_messages / 7 if total_messages > 0 else 0
+            avg_per_hour = page_messages_count / 24 if page_messages_count > 0 else 0
+            avg_per_day = page_messages_count / 7 if page_messages_count > 0 else 0
+
+            total_pages = (
+                math.ceil(total_messages / per_page) if total_messages > 0 else 1
+            )
 
             return {
                 "hourly": {
@@ -463,10 +540,19 @@ class ChatService:
                 },
                 "metrics": {
                     "total_messages": total_messages,
+                    "current_page_messages": page_messages_count,
                     "peak_hour": peak_hour,
                     "peak_day": peak_day,
                     "avg_messages_per_hour": round(avg_per_hour, 2),
                     "avg_messages_per_day": round(avg_per_day, 2),
+                },
+                "pagination": {
+                    "page": page,
+                    "per_page": per_page,
+                    "total": total_messages,
+                    "pages": total_pages,
+                    "has_next": page < total_pages,
+                    "has_prev": page > 1,
                 },
             }
 
@@ -489,7 +575,6 @@ class ChatService:
             Exception: Para outros erros durante o processamento
         """
         try:
-            # Buscar o documento da sessão
             document = self.memory_manager.collection.find_one(
                 {"session_id": session_id}
             )
@@ -498,23 +583,19 @@ class ChatService:
 
             logger.debug(f"Documento encontrado: {session_id}")
 
-            # Extrair dados do cliente
             customer_data = document.get("customer_data", {})
             customer_info = customer_data.get("customer_info", {})
             borrower = customer_data.get("borrower", {})
             proposal_data = document.get("proposal_data", {})
 
-            # Tentar extrair informações do cliente de todas as fontes possíveis
             customer_name = (
                 customer_info.get("name")
                 or borrower.get("name")
                 or document.get("name", "")
             )
 
-            # Buscar CPF diretamente em customer_data (onde foi visto na depuração)
             customer_cpf = customer_data.get("cpf", "")
 
-            # Se não encontrou, tentar outros locais
             if not customer_cpf:
                 customer_cpf = (
                     customer_info.get("cpf")
@@ -560,10 +641,8 @@ class ChatService:
 
                 return "start"
 
-            # Extrair dados financeiros
             simulation_data = document.get("simulation_data", {})
 
-            # Obter dados de endereço, se disponíveis
             address = {}
             if "address" in customer_data:
                 address = customer_data.get("address", {})
@@ -581,14 +660,11 @@ class ChatService:
                     "state": customer_info.get("state", ""),
                 }
 
-            # Validar se address tem o formato esperado
             if not isinstance(address, dict):
                 address = {}
 
-            # Obter informações de formalização - verificar primeiro em customer_data.formalization_link
             formalization_link = customer_data.get("formalization_link", "")
 
-            # Se não encontrou, tentar outros locais
             if not formalization_link:
                 formalization_link = (
                     document.get("formalization_link", "")
@@ -596,7 +672,6 @@ class ChatService:
                     or document.get("contractFormalizationLink", "")
                 )
 
-            # Verificar status de formalização
             formalization_status = "pending"
             if customer_data.get("formalize_confirmed") or document.get(
                 "formalization_completed"
@@ -605,7 +680,6 @@ class ChatService:
             elif customer_data.get("formalization_initiated"):
                 formalization_status = "in_progress"
 
-            # Obter datas relevantes - verificando múltiplos caminhos
             created_at = None
             for path in [
                 "created_at",
@@ -644,10 +718,8 @@ class ChatService:
                     updated_at = value
                     break
 
-            # Buscar especificamente customer_data.proposal_created_at que foi visto no log
             proposal_sent_at = customer_data.get("proposal_created_at")
 
-            # Se não encontrou, tentar outros caminhos
             if not proposal_sent_at:
                 for path in [
                     "proposal_sent_at",
@@ -670,7 +742,6 @@ class ChatService:
                 "formalization_completed_at", None
             )
 
-            # Tratar dados de data para serialização
             def format_date(date_obj):
                 if date_obj:
                     if hasattr(date_obj, "isoformat"):
@@ -678,10 +749,8 @@ class ChatService:
                     return str(date_obj)
                 return None
 
-            # Dados para histórico de eventos
             events = []
 
-            # Evento de criação da sessão
             if created_at:
                 events.append(
                     {
@@ -691,7 +760,6 @@ class ChatService:
                     }
                 )
 
-            # Evento de simulação
             simulation_timestamp = None
             if "timestamp" in simulation_data:
                 simulation_timestamp = simulation_data.get("timestamp")
@@ -760,10 +828,8 @@ class ChatService:
                 "current_state": document.get("current_state", ""),
             }
 
-            # Extrair dados do banco - primeiro de customer_data.bank_data que foi visto no log
             bank_data = customer_data.get("bank_data", {})
 
-            # Se não encontrou, tentar outros locais
             if not bank_data:
                 bank_data = (
                     document.get("disbursementBankAccount", {})
@@ -772,7 +838,6 @@ class ChatService:
                     or {}
                 )
 
-            # Construir resposta básica
             response = {
                 "contract": {
                     "contract_number": contract_number or "Não disponível",
@@ -813,7 +878,6 @@ class ChatService:
             # Verificar se existem parcelas antes de adicionar
             installments = None
 
-            # Procurar em vários lugares possíveis
             for path in [
                 "installments",
                 "proposal_data.installments",
@@ -831,7 +895,6 @@ class ChatService:
                     installments = value
                     break
 
-            # Apenas adicionar parcelas se realmente existirem
             if installments:
                 response["financial"]["installments"] = installments
 

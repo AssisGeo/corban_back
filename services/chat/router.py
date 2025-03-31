@@ -8,8 +8,10 @@ from .schemas import (
     ContractDetailsResponse,
 )
 from memory import MongoDBMemoryManager
+import logging
 
 router = APIRouter(prefix="/api/v1/chats", tags=["chats"])
+logger = logging.getLogger(__name__)
 
 
 async def get_chat_service():
@@ -28,16 +30,17 @@ async def get_chat_stats(service: ChatService = Depends(get_chat_service)):
 
 @router.get("/pipeline", response_model=Dict[str, Any])
 async def get_pipeline_data(
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=20, ge=1, le=100),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
     cpf: Optional[str] = Query(default=None),
     service: ChatService = Depends(get_chat_service),
 ):
     """Lista todas as propostas enviadas com seus detalhes."""
     try:
-        pipeline_data = await service.get_pipeline_data(skip, limit, cpf_search=cpf)
+        pipeline_data = await service.get_pipeline_data(page, per_page, cpf_search=cpf)
         return pipeline_data
     except Exception as e:
+        logger.error(f"Erro ao obter dados da pipeline: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -55,11 +58,16 @@ async def get_chat_contract_details(
 
 
 @router.get("/metrics/messages")
-async def get_message_metrics(service: ChatService = Depends(get_chat_service)):
-    """Retorna métricas de mensagens"""
+async def get_message_metrics(
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=20, ge=1, le=100),
+    service: ChatService = Depends(get_chat_service),
+):
+    """Retorna métricas de mensagens com paginação"""
     try:
-        return await service.get_messages_metrics()
+        return await service.get_messages_metrics(page, per_page)
     except Exception as e:
+        logger.error(f"Erro ao obter métricas de mensagens: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -75,15 +83,15 @@ async def get_messages_by_hour(
 @router.get("/", response_model=Dict[str, Any])
 async def list_chats(
     page: int = Query(1, ge=1),
-    per_page: int = Query(5, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
     service: ChatService = Depends(get_chat_service),
 ):
     """Lista todos os chats com paginação e busca opcional"""
     try:
-        skip = (page - 1) * per_page
-        return await service.list_chats(skip=skip, limit=per_page, search=search)
+        return await service.list_chats(page=page, per_page=per_page, search=search)
     except Exception as e:
+        logger.error(f"Erro ao listar chats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

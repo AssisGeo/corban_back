@@ -38,21 +38,55 @@ class SimulationService:
         return results
 
     def _save_results(self, cpf: str, results: List[SimulationResult]):
-        """Salva resultados no MongoDB"""
+        """Salva resultados no MongoDB com informações adicionais"""
         try:
             for result in results:
-                self.simulations.insert_one(
-                    {
-                        "cpf": cpf,
-                        "bank_name": result.bank_name,
-                        "available_amount": result.available_amount,
-                        "error_message": result.error_message,
-                        "success": result.success,
-                        "timestamp": result.timestamp,
-                    }
-                )
+                print(result)
+                simulation_doc = {
+                    "cpf": cpf,
+                    "bank_name": result.bank_name,
+                    "available_amount": result.available_amount,
+                    "error_message": result.error_message,
+                    "success": result.success,
+                    "timestamp": result.timestamp,
+                    "financial_id": (
+                        result.raw_response.get("financialId")  # VCTEX
+                        or result.raw_response.get("data", {}).get("financialId")  # QI
+                        or result.raw_response.get("simulacao_fgts")  # FACTA
+                        or result.raw_response.get("financial_id")
+                    ),
+                    "bank_provider": result.bank_name,
+                }
+
+                # Insere o documento
+                self.simulations.insert_one(simulation_doc)
+
+                if result.raw_response.get("financialId"):
+                    self._update_session_with_bank_provider(
+                        result.raw_response["financialId"], result.bank_name
+                    )
+
         except Exception as e:
             logger.error(f"Erro ao salvar resultados: {str(e)}")
+
+    def _update_session_with_bank_provider(self, financial_id: str, bank_name: str):
+        """
+        Atualiza a sessão com o provedor do banco
+        """
+        from memory import MongoDBMemoryManager
+
+        memory_manager = MongoDBMemoryManager()
+        memory_manager.set_session_data(financial_id, "bank_provider", bank_name)
+        logger.info(f"Provedor {bank_name} salvo para sessão {financial_id}")
+
+    def get_bank_provider_for_financial_id(self, financial_id: str) -> str:
+        """
+        Recupera o provedor do banco para um financial_id específico
+        """
+        simulation = self.simulations.find_one({"financial_id": financial_id})
+        if simulation:
+            return simulation.get("bank_provider")
+        return None
 
     def get_simulation_history(
         self, cpf: str, bank_name: str | None = None

@@ -17,3 +17,4 @@ from .bmg.payloads.benefit_card.save_proposal import (
     Address,
     SaveProposalRequest,
 )
+from .facta_api_client import FactaApi

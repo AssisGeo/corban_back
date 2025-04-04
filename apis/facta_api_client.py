@@ -2,6 +2,7 @@ import aiohttp
 import os
 import logging
 import base64
+import traceback
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 import json
@@ -9,7 +10,6 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 load_dotenv()
-
 
 logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -224,7 +224,8 @@ class FactaApi:
             async with self.session.get(url, headers=headers) as response:
                 logger.info(f"Chamada API: URL={url}, Status={response.status}")
                 response.raise_for_status()
-                return await response.json()
+                result = await response.json()
+                return result
         except aiohttp.ClientResponseError as e:
             if e.status == 429:
                 logger.error("Limite de requisições atingido (2 por segundo)")
@@ -246,7 +247,8 @@ class FactaApi:
             async with self.session.get(url, headers=headers) as response:
                 logger.info(f"Chamada API: URL={url}, Status={response.status}")
                 response.raise_for_status()
-                return await response.json()
+                result = await response.json()
+                return result
         except aiohttp.ClientResponseError as e:
             logger.error(f"Erro ao consultar saldo FGTS: {e.status} - {e.message}")
             raise
@@ -277,7 +279,8 @@ class FactaApi:
                     f"Chamada API: URL={self.fgts_calculo_url}, Status={response.status}"
                 )
                 response.raise_for_status()
-                return await response.json()
+                result = await response.json()
+                return result
         except aiohttp.ClientResponseError as e:
             logger.error(f"Erro ao simular valor FGTS: {e.status} - {e.message}")
             raise
@@ -308,7 +311,7 @@ class FactaApi:
         if not isinstance(data_nascimento, str):
             data_nascimento = str(data_nascimento)
 
-        # Garantir que não tem caracteres de formatação indevidos
+        # Remover caracteres inválidos da data
         data_nascimento = data_nascimento.replace("{", "").replace("}", "")
 
         form_data = {
@@ -321,7 +324,9 @@ class FactaApi:
             "login_certificado": self.user,
             "simulacao_fgts": simulacao_fgts,
         }
+
         try:
+
             async with self.session.post(
                 self.proposta_etapa1_url, data=form_data, headers=headers_form
             ) as response:
@@ -330,28 +335,28 @@ class FactaApi:
                 )
 
                 response_text = await response.text()
-                logger.info(f"Resposta bruta da API: {response_text}")
 
                 try:
                     response_data = json.loads(response_text)
-                    logger.info(
-                        f"Resposta da API de simulação como JSON: {response_data}"
-                    )
                     return response_data
                 except json.JSONDecodeError:
-                    logger.error(f"Erro ao decodificar JSON: {response_text}")
+                    logger.error(
+                        f"[FACTA] Erro ao decodificar JSON da ETAPA 1: {response_text}"
+                    )
                     return {
                         "erro": True,
                         "mensagem": f"Resposta inválida: {response_text}",
                     }
 
         except aiohttp.ClientResponseError as e:
-            error_msg = f"Erro no cadastro da simulação: {e.status} - {e.message}"
-            logger.error(error_msg)
-            return {"erro": True, "mensagem": error_msg}
+            logger.error(e)
+            return {"erro": True, "mensagem": e}
         except Exception as e:
-            error_msg = f"Erro inesperado no cadastro da simulação: {str(e)}"
+            error_msg = (
+                f"[FACTA] Erro inesperado no cadastro da simulação (ETAPA 1): {str(e)}"
+            )
             logger.error(error_msg)
+            logger.error(traceback.format_exc())
             return {"erro": True, "mensagem": error_msg}
         finally:
             await self.close_session()
@@ -387,8 +392,6 @@ class FactaApi:
                 if value is not None:
                     form_data[key] = str(value)
 
-            logger.debug(f"Dados completos para envio: {form_data}")
-
             async with self.session.post(
                 self.proposta_etapa2_url, data=form_data, headers=headers_form
             ) as response:
@@ -397,24 +400,27 @@ class FactaApi:
                 )
 
                 response_text = await response.text()
-                logger.debug(f"Resposta bruta: {response_text}")
 
                 try:
                     response_data = json.loads(response_text)
                     return response_data
                 except json.JSONDecodeError:
+                    logger.error(
+                        f"[FACTA] Erro ao decodificar JSON da ETAPA 2: {response_text}"
+                    )
                     return {
                         "erro": True,
                         "mensagem": f"Resposta inválida: {response_text}",
                     }
 
         except aiohttp.ClientResponseError as e:
-            error_msg = f"Erro no cadastro dos dados pessoais: {e.status} - {e.message}"
+            error_msg = f"[FACTA] Erro no cadastro dos dados pessoais (ETAPA 2): {e.status} - {e.message}"
             logger.error(error_msg)
             return {"erro": True, "mensagem": error_msg}
         except Exception as e:
-            error_msg = f"Erro inesperado no cadastro dos dados pessoais: {str(e)}"
+            error_msg = f"[FACTA] Erro inesperado no cadastro dos dados pessoais (ETAPA 2): {str(e)}"
             logger.error(error_msg)
+            logger.error(traceback.format_exc())
             return {"erro": True, "mensagem": error_msg}
         finally:
             await self.close_session()
@@ -430,9 +436,11 @@ class FactaApi:
         headers_form = dict(headers)
         headers_form["Content-Type"] = "application/x-www-form-urlencoded"
 
-        form_data = {"codigo_cliente": codigo_cliente, "id_simulador": id_simulador}
-
-        form_data["tipo_formalizacao"] = "DIG"
+        form_data = {
+            "codigo_cliente": codigo_cliente,
+            "id_simulador": id_simulador,
+            "tipo_formalizacao": "DIG",
+        }
 
         try:
             async with self.session.post(
@@ -441,13 +449,26 @@ class FactaApi:
                 logger.info(
                     f"Chamada API: URL={self.proposta_etapa3_url}, Status={response.status}"
                 )
-                response.raise_for_status()
-                return await response.json()
+
+                response_text = await response.text()
+
+                try:
+                    response_data = json.loads(response_text)
+                    return response_data
+                except json.JSONDecodeError:
+                    return {
+                        "erro": True,
+                        "mensagem": f"Resposta inválida: {response_text}",
+                    }
         except aiohttp.ClientResponseError as e:
-            logger.error(f"Erro no cadastro da proposta: {e.status} - {e.message}")
+            logger.error(e)
             raise
         except Exception as e:
-            logger.error(f"Erro inesperado no cadastro da proposta: {str(e)}")
+            error_msg = (
+                f"[FACTA] Erro inesperado no cadastro da proposta (ETAPA 3): {str(e)}"
+            )
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
             raise
         finally:
             await self.close_session()
@@ -462,7 +483,7 @@ class FactaApi:
         headers_form["Content-Type"] = "application/x-www-form-urlencoded"
 
         form_data = {
-            "codifo_af": codigo_af,  # Nota: a API usa "codifo_af" em vez de "codigo_af"
+            "codifo_af": codigo_af,
             "tipo_envio": tipo_envio,
         }
 
@@ -473,15 +494,27 @@ class FactaApi:
                 logger.info(
                     f"Chamada API: URL={self.proposta_envio_link_url}, Status={response.status}"
                 )
-                response.raise_for_status()
-                return await response.json()
+
+                response_text = await response.text()
+
+                try:
+                    response_data = json.loads(response_text)
+                    return response_data
+                except json.JSONDecodeError:
+                    logger.error(
+                        f"[FACTA] Erro ao decodificar JSON do envio de link: {response_text}"
+                    )
+                    return {
+                        "erro": True,
+                        "mensagem": f"Resposta inválida: {response_text}",
+                    }
         except aiohttp.ClientResponseError as e:
-            logger.error(
-                f"Erro no envio do link de formalização: {e.status} - {e.message}"
-            )
+            error_msg = f"[FACTA] Erro no envio do link de formalização: {e.status} - {e.message}"
+            logger.error(error_msg)
             raise
         except Exception as e:
-            logger.error(f"Erro inesperado no envio do link de formalização: {str(e)}")
+            logger.error(e)
+            logger.error(traceback.format_exc())
             raise
         finally:
             await self.close_session()

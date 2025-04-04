@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 
 class SimulationInput(BaseModel):
@@ -145,29 +145,16 @@ class DisbursementBankAccount(BaseModel):
 
 
 class SendProposalInput(BaseModel):
-    feeScheduleId: int = Field(
-        ..., description="ID numérico da tabela de taxas a ser utilizada na proposta"
-    )
     financialId: str = Field(
-        ...,
-        description="ID único retornado pela simulação de crédito prévia, necessário para vincular a proposta à simulação",
+        ..., description="ID único retornado pela simulação prévia"
     )
-    borrower: Borrower = Field(
-        ...,
-        description="Objeto contendo todas as informações pessoais do cliente necessárias para a proposta",
+    feeScheduleId: Optional[int] = Field(
+        default=0, description="ID da tabela de taxas (opcional)"
     )
-    document: Document = Field(
-        ...,
-        description="Objeto contendo as informações do documento de identificação do cliente",
-    )
-    address: Address = Field(
-        ...,
-        description="Objeto contendo as informações de endereço residencial do cliente",
-    )
-    disbursementBankAccount: DisbursementBankAccount = Field(
-        ...,
-        description="Objeto contendo as informações da conta bancária do cliente para recebimento do FGTS",
-    )
+    borrower: Borrower
+    document: Document
+    address: Address
+    disbursementBankAccount: DisbursementBankAccount
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]):

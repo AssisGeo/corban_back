@@ -1,12 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List, Optional, Dict
 from .services import SimulationService
-from .banks.base import SimulationResult
 from .banks.qi_bank import QIBankSimulator
 from .banks.vctex_bank import VCTEXBankSimulator
 from .banks.facta_bank import FactaBankSimulator
 from pydantic import BaseModel
 from datetime import datetime
+from models.normalized.simulation import NormalizedSimulationResponse
 
 
 class SimulationHistoryItem(BaseModel):
@@ -30,7 +30,7 @@ def get_simulation_service() -> SimulationService:
     return service
 
 
-@router.post("/{cpf}", response_model=List[SimulationResult])
+@router.post("/{cpf}", response_model=List[NormalizedSimulationResponse])
 async def simulate_fgts(
     cpf: str,
     bank: str | None = Query(
@@ -38,7 +38,7 @@ async def simulate_fgts(
     ),
     service: SimulationService = Depends(get_simulation_service),
 ):
-    """Simula FGTS em um ou todos os bancos disponíveis"""
+    """Simula FGTS em um ou todos os bancos disponíveis com resposta normalizada"""
     try:
         cpf = cpf.replace(".", "").replace("-", "")
         return await service.simulate(cpf, bank)

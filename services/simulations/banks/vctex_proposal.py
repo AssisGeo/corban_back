@@ -18,12 +18,10 @@ class VCTEXBankProposal(BankProposal):
 
     async def submit_proposal(self, proposal_data: SendProposalInput) -> ProposalResult:
         try:
-            # print(proposal_data)
             if hasattr(proposal_data, "model_dump"):
                 proposal_dict = proposal_data.model_dump()
             else:
                 proposal_dict = proposal_data
-            print(proposal_data["borrower"])
             if "borrower" in proposal_dict and "cpf" in proposal_dict["borrower"]:
                 normalized_cpf = (
                     proposal_dict["borrower"]["cpf"].replace(".", "").replace("-", "")

@@ -64,7 +64,6 @@ class FactaBankProposal(BankProposal):
 
     async def submit_proposal(self, proposal_data: SendProposalInput) -> ProposalResult:
         try:
-            print(proposal_data)
             normalized_cpf = proposal_data["cpf"].replace(".", "").replace("-", "")
 
             simulation_id = proposal_data["id_simulador"]
@@ -108,7 +107,6 @@ class FactaBankProposal(BankProposal):
 
             # Formatar telefone no formato exato exigido: (DDD) XXXXX-XXXX
             formatted_phone = self._format_phone_exact(proposal_data["celular"])
-            print(formatted_phone)
             # Construir payload da etapa 2 com TODOS os campos obrigatórios
             dados_pessoais = {
                 "id_simulador": id_simulador,

@@ -375,7 +375,6 @@ class ProposalService:
                 original_request_dict = original_request
             else:
                 original_request_dict = {"data": str(original_request)}
-            print(original_request_dict["customer"], "customer")
             extracted_customer = {}
             phone_number = ""
             if original_request_dict:

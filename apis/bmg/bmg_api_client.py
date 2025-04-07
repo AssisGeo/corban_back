@@ -127,7 +127,9 @@ class BmgApiClient:
             request_number = response["numeroSolicitacao"]
             token = data.token
 
-            form_data = SingleConsultRequest(request_number=request_number, token=token, cpf=data.cpf)
+            form_data = SingleConsultRequest(
+                request_number=request_number, token=token, cpf=data.cpf
+            )
 
             return self.single_consult_request(data=form_data)
 
@@ -158,9 +160,7 @@ class BmgApiClient:
             if card_data:
                 pattern = r"R\$\s*([\d.]+,\d{2})(?=[^\d]|$)"
                 matches: list[str] = re.findall(pattern, card_data[0])
-                print(matches)
                 values = [match.replace(".", "").replace(",", ".") for match in matches]
-                print(values)
                 if values:
                     simulation_data = {
                         "card_simulation": {

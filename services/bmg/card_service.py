@@ -105,7 +105,7 @@ class CardService:
         )
 
         if not user_data:
-            HTTPException(
+            raise HTTPException(
                 status_code=400,
                 detail="Cliente não encontrado",
             )
@@ -116,6 +116,32 @@ class CardService:
             **customer_data["customer"],
         }
 
+        missing_bank_info = True
+        if "in100" in user_data and user_data["in100"]["consulta"]:
+            in100_data = user_data["in100"]["consulta"]
+            if in100_data.get("contaCorrente"):
+                missing_bank_info = False
+
+        if missing_bank_info and "bank_data" in customer_data["customer"]:
+            bank_info = customer_data["customer"]["bank_data"]
+
+            if "in100" in user_data:
+                redis_key = f"in100_bmg_{user_data['cpf']}_{user_data['benefit']}"
+                in100_data = user_data["in100"]
+
+                if "consulta" in in100_data:
+                    in100_data["consulta"]["cbcIfPagadora"] = bank_info.get("bankCode")
+                    in100_data["consulta"]["agenciaPagadora"] = bank_info.get(
+                        "branchNumber"
+                    )
+                    in100_data["consulta"][
+                        "contaCorrente"
+                    ] = f"{bank_info.get('accountNumber')}{bank_info.get('accountDigit')}"
+
+                    from services.inapi.redis_cache import add_in100_to_cache
+
+                    add_in100_to_cache(redis_key, in100_data)
+
         updated_data = repository.update_in_collection_by_id(
             self.collection,
             user_data["id"],
@@ -124,7 +150,80 @@ class CardService:
 
         return updated_data
 
-    async def fourth_step(self, data: ThirdStepRequest):
+    # async def fourth_step(self, data: ThirdStepRequest):
+    #     repository = BMGMongoRepository()
+
+    #     user_data = repository.get_from_collection_by_id(
+    #         self.collection, data.customer_id
+    #     )
+
+    #     if not user_data:
+    #         HTTPException(
+    #             status_code=400,
+    #             detail="Cliente não encontrado",
+    #         )
+
+    #     if "in100" not in user_data:
+    #         HTTPException(
+    #             status_code=400,
+    #             detail="Dados do in100 nao encontrados",
+    #         )
+
+    #     in100_data = user_data["in100"]["consulta"]
+    #     income_value = Decimal(in100_data["valorComprometido"]) + Decimal(
+    #         in100_data["valorLiquido"]
+    #     )
+    #     proposal_data = SaveProposalRequest(
+    #         bank_num=in100_data["cbcIfPagadora"],
+    #         agency={
+    #             "number": in100_data["agenciaPagadora"],
+    #             "secure_digit": "",
+    #         },
+    #         account={
+    #             "number": in100_data["contaCorrente"][:-1],
+    #             "secure_digit": in100_data["contaCorrente"][-1],
+    #         },
+    #         banco_ordem_pagamento=in100_data["cbcIfPagadora"],
+    #         customer={
+    #             "cellphone": user_data["cellphone"],
+    #             "phone": user_data["phone"],
+    #             "city_of_birth": user_data["city_of_birth"],
+    #             "cpf": user_data["cpf"],
+    #             "birthdate": user_data["birthdate"],
+    #             "email": user_data["email"],
+    #             "address": user_data["address"],
+    #             "marital_status": user_data["marital_status"],
+    #             "educational_level": user_data["educational_level"],
+    #             "identity_document": user_data["identity_document"],
+    #             "nationality": user_data["nationality"],
+    #             "name": user_data["name"],
+    #             "spouse_name": user_data["spouse_name"],
+    #             "mother_name": user_data["mother_name"],
+    #             "father_name": user_data["father_name"],
+    #             "ppe": user_data["ppe"],
+    #             "gender": user_data["gender"],
+    #             "state_of_birth": user_data["state_of_birth"],
+    #         },
+    #         finalidade_credito=1,
+    #         income_date=datetime.now(),
+    #         margin=in100_data["margemDisponivelRcc"],
+    #         benefit=user_data["benefit"],
+    #         benefit_type=in100_data["especie"],
+    #         uf_benefit=in100_data["ufPagamento"],
+    #         income_value=income_value,
+    #     )
+    #     bmg_client = BmgApiClient()
+    #     proposal_number = bmg_client.save_benefit_card_proposal(proposal_data)
+
+    #     updated_data = repository.update_in_collection_by_id(
+    #         self.collection,
+    #         user_data["id"],
+    #         data={"proposal_number": proposal_number},
+    #     )
+
+    #     return updated_data
+
+    async def fourth_step(self, data: FourthStepRequest):
         repository = BMGMongoRepository()
 
         user_data = repository.get_from_collection_by_id(
@@ -132,21 +231,27 @@ class CardService:
         )
 
         if not user_data:
-            HTTPException(
+            raise HTTPException(
                 status_code=400,
                 detail="Cliente não encontrado",
             )
-
         if "in100" not in user_data:
-            HTTPException(
+            raise HTTPException(
                 status_code=400,
-                detail="Dados do in100 nao encontrados",
+                detail="Dados do in100 não encontrados",
             )
 
         in100_data = user_data["in100"]["consulta"]
         income_value = Decimal(in100_data["valorComprometido"]) + Decimal(
             in100_data["valorLiquido"]
         )
+
+        if not in100_data.get("contaCorrente"):
+            raise HTTPException(
+                status_code=400,
+                detail="Informações bancárias não disponíveis. Por favor, forneça esses dados no passo anterior.",
+            )
+
         proposal_data = SaveProposalRequest(
             bank_num=in100_data["cbcIfPagadora"],
             agency={
@@ -154,38 +259,47 @@ class CardService:
                 "secure_digit": "",
             },
             account={
-                "number": in100_data["contaCorrente"][:-1],
-                "secure_digit": in100_data["contaCorrente"][-1],
+                "number": (
+                    in100_data["contaCorrente"][:-1]
+                    if in100_data["contaCorrente"]
+                    else ""
+                ),
+                "secure_digit": (
+                    in100_data["contaCorrente"][-1]
+                    if in100_data["contaCorrente"]
+                    else ""
+                ),
             },
             banco_ordem_pagamento=in100_data["cbcIfPagadora"],
             customer={
                 "cellphone": user_data["cellphone"],
-                "phone": user_data["phone"],
+                "phone": user_data.get("phone", ""),
                 "city_of_birth": user_data["city_of_birth"],
                 "cpf": user_data["cpf"],
                 "birthdate": user_data["birthdate"],
                 "email": user_data["email"],
                 "address": user_data["address"],
-                "marital_status": user_data["marital_status"],
-                "educational_level": user_data["educational_level"],
+                "marital_status": user_data.get("marital_status", "S"),
+                "educational_level": user_data.get("educational_level", "7"),
                 "identity_document": user_data["identity_document"],
                 "nationality": user_data["nationality"],
                 "name": user_data["name"],
-                "spouse_name": user_data["spouse_name"],
+                "spouse_name": user_data.get("spouse_name", ""),
                 "mother_name": user_data["mother_name"],
-                "father_name": user_data["father_name"],
-                "ppe": user_data["ppe"],
+                "father_name": user_data.get("father_name", "Não declarado"),
+                "ppe": user_data.get("ppe", False),
                 "gender": user_data["gender"],
                 "state_of_birth": user_data["state_of_birth"],
             },
             finalidade_credito=1,
             income_date=datetime.now(),
-            margin=in100_data["margemDisponivelRcc"],
+            margin=in100_data.get("margemDisponivelRcc", 0),
             benefit=user_data["benefit"],
             benefit_type=in100_data["especie"],
             uf_benefit=in100_data["ufPagamento"],
             income_value=income_value,
         )
+
         bmg_client = BmgApiClient()
         proposal_number = bmg_client.save_benefit_card_proposal(proposal_data)
 

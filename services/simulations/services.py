@@ -86,7 +86,6 @@ class SimulationService:
         """Salva resultados no MongoDB com informações adicionais"""
         try:
             for result in results:
-                print(result)
                 simulation_doc = {
                     "cpf": cpf,
                     "bank_name": result.bank_name,

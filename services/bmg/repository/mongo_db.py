@@ -35,7 +35,6 @@ class BMGMongoRepository:
         result = collection.find_one({"_id": ObjectId(id)})
         if not result:
             return None
-
         if result and "benefit" in result:
             redis_key = f"in100_bmg_{result['cpf']}_{result['benefit']}"
             in100_data = get_in100_from_cache(redis_key)

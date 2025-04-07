@@ -23,7 +23,6 @@ def get_in100_from_cache(id):
     r = get_redis_connection()
 
     data = r.get(id)
-
     if data is None:
         return None
 

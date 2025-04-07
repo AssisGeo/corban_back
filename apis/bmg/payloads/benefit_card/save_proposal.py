@@ -6,6 +6,15 @@ from decimal import Decimal
 from utils.format_string_datetime import format_string_datetime
 
 
+class BankData(BaseModel):
+    bankCode: str
+    bankName: Optional[str] = None
+    branchNumber: str
+    accountNumber: str
+    accountDigit: str
+    accountType: Optional[str] = "corrente"
+
+
 class Agency(BaseModel):
     number: str
     secure_digit: str = ""
@@ -53,6 +62,7 @@ class Customer(BaseModel):
     ppe: Optional[bool] = False
     gender: str
     state_of_birth: str
+    bank_data: Optional[BankData] = None
 
 
 class SaveProposalRequest(BaseModel):

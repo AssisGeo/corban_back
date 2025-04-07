@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from decimal import Decimal
 from fastapi import HTTPException
-
+from math import ceil
 from services.bmg.repository.mongo_db import BMGMongoRepository
 from apis import (
     BmgApiClient,
@@ -310,3 +310,66 @@ class CardService:
         )
 
         return updated_data
+
+    async def list_cards(self, page: int = 1, per_page: int = 20, cpf: str = None):
+        """
+        Lista todos os cartões com paginação e filtro opcional por CPF.
+        """
+        repository = BMGMongoRepository()
+
+        query = {}
+        if cpf:
+            query["cpf"] = cpf
+
+        total = repository.count_documents(self.collection, query)
+
+        skip = (page - 1) * per_page
+        total_pages = ceil(total / per_page) if total > 0 else 1
+
+        cards = repository.get_paginated(self.collection, query, skip, per_page)
+
+        items = []
+        for card in cards:
+            items.append(
+                {
+                    "id": card.get("id"),
+                    "name": card.get("name"),
+                    "benefit": card.get("benefit", ""),
+                    "cpf": card.get("cpf", ""),
+                    "status": self._determine_card_status(card),
+                    "proposal_number": card.get("proposal_number", ""),
+                    "card_limit": card.get("card_simulation", {}).get("limit", 0),
+                    "withdrawal_limit": card.get("card_simulation", {}).get(
+                        "withdrawal_limit", 0
+                    ),
+                    "has_proposal": "proposal_number" in card,
+                    # "document": card.get("identity_document"),
+                    # "bank": card.get("bank_data"),
+                    # "address": card.get("address"),
+                }
+            )
+
+        return {
+            "items": items,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": total_pages,
+            "has_next": page < total_pages,
+            "has_prev": page > 1,
+        }
+
+    def _determine_card_status(self, card_data):
+        """Determina o status atual do cartão."""
+        if "proposal_number" in card_data:
+            return "approved"
+        elif "card_simulation" in card_data:
+            limit = card_data.get("card_simulation", {}).get("limit", 0)
+            if limit > 0:
+                return "eligible"
+            else:
+                return "not_eligible"
+        elif "in100" in card_data:
+            return "verified"
+        else:
+            return "pending"

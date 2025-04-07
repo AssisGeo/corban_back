@@ -75,3 +75,14 @@ class BMGMongoRepository:
         }
         del response["_id"]
         return response
+
+    def count_documents(self, collection_name, query=None):
+        """Conta documentos na coleção com filtros opcionais."""
+        collection = self.db[collection_name]
+        return collection.count_documents(query or {})
+
+    def get_paginated(self, collection_name, query, skip, limit):
+        """Busca documentos com paginação."""
+        collection = self.db[collection_name]
+        cursor = collection.find(query).skip(skip).limit(limit)
+        return [self.parse_mongo_return(doc) for doc in cursor]

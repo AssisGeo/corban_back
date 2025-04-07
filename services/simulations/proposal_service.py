@@ -44,8 +44,54 @@ class ProposalService:
             # Extrair o financial_id independentemente do tipo de entrada
             if isinstance(proposal_data, dict):
                 financial_id = proposal_data.get("financial_id", "")
+                if not financial_id:
+                    financial_id = proposal_data.get("financialId", "")
             else:
                 financial_id = proposal_data.financial_id
+
+            # 2. Buscar dados da simulação armazenada
+            simulation_data = self._get_simulation_data(financial_id)
+
+            # 3. Buscar dados do cliente relacionados a esta simulação
+            customer_data = self._get_customer_data(financial_id)
+
+            # Se não encontrou dados do cliente, extrair da própria proposta
+            if not customer_data and isinstance(proposal_data, dict):
+                logger.info(
+                    f"Extraindo dados do cliente da própria proposta para {financial_id}"
+                )
+                extracted_customer = {}
+
+                # Extrair dados do cliente da proposta atual
+                if "borrower" in proposal_data:
+                    borrower = proposal_data["borrower"]
+                    extracted_customer = {
+                        "name": borrower.get("name", ""),
+                        "cpf": borrower.get("cpf", ""),
+                        "email": borrower.get("email", ""),
+                        "phone": borrower.get("phoneNumber", ""),
+                        "mother_name": borrower.get("motherName", ""),
+                        "birth_date": borrower.get("birthdate", ""),
+                    }
+
+                # Ou para outro formato
+                elif "nome" in proposal_data:
+                    extracted_customer = {
+                        "name": proposal_data.get("nome", ""),
+                        "cpf": proposal_data.get("cpf", ""),
+                        "email": proposal_data.get("email", ""),
+                        "phone": proposal_data.get("celular", ""),
+                        "mother_name": proposal_data.get("nome_mae", ""),
+                        "birth_date": proposal_data.get("data_nascimento", ""),
+                    }
+
+                if extracted_customer:
+                    customer_data = {"customer_data": extracted_customer}
+
+                    # Salva os dados extraídos na sessão para uso futuro
+                    self.memory_manager.set_session_data(
+                        financial_id, "customer_data", extracted_customer
+                    )
 
             if not target_bank:
                 # Se não foi especificado, consulta pelo financialId
@@ -58,7 +104,7 @@ class ProposalService:
                         f"Banco não identificado para o ID {financial_id}, usando padrão: {target_bank}"
                     )
 
-            # 2. Verificar se o provedor está registrado
+            # Verificar se o provedor está registrado
             if target_bank not in self._proposal_providers:
                 error_msg = f"Provedor não registrado: {target_bank}"
                 logger.error(error_msg)
@@ -69,7 +115,7 @@ class ProposalService:
                     raw_response={"error": error_msg},
                 )
 
-            # 3. Verificar se existe adaptador para o banco
+            # Verificar se existe adaptador para o banco
             if target_bank not in self._adapters:
                 error_msg = f"Adaptador não encontrado para banco: {target_bank}"
                 logger.error(error_msg)
@@ -84,7 +130,20 @@ class ProposalService:
                 try:
                     from models.normalized.proposal import NormalizedProposalRequest
 
-                    normalized_data = NormalizedProposalRequest(**proposal_data)
+                    # Enriquece a proposta com dados da simulação e do cliente
+                    enriched_data = proposal_data.copy()
+
+                    if simulation_data:
+                        for key, value in simulation_data.items():
+                            if key not in enriched_data:
+                                enriched_data[key] = value
+
+                    if customer_data:
+                        for key, value in customer_data.items():
+                            if key not in enriched_data:
+                                enriched_data[key] = value
+
+                    normalized_data = NormalizedProposalRequest(**enriched_data)
                 except Exception as e:
                     error_msg = (
                         f"Erro ao converter dados para formato normalizado: {str(e)}"
@@ -102,7 +161,7 @@ class ProposalService:
             else:
                 normalized_data = proposal_data
 
-            # 5. Usar o adaptador para converter para o formato específico do banco
+            # Usar o adaptador para converter para o formato específico do banco
             adapter = self._adapters[target_bank]
             try:
                 bank_specific_data = adapter.prepare_proposal_request(normalized_data)
@@ -121,29 +180,66 @@ class ProposalService:
                     raw_response={"error": error_msg},
                 )
 
-            # 6. Enviar a proposta usando o provedor específico
+            # Enviar a proposta usando o provedor específico
             provider = self._proposal_providers[target_bank]
             result = await provider.submit_proposal(bank_specific_data)
 
-            # 7. Salvar o resultado
-            self._save_proposal_result(financial_id, result)
+            # Salvar o resultado enriquecido com os dados da simulação e do cliente
+            self._save_proposal_result(
+                financial_id, result, simulation_data, customer_data, normalized_data
+            )
 
-            # 8. Se for bem-sucedido, atualizar a sessão com o número do contrato
+            # Se for bem-sucedido, atualizar a sessão com o número do contrato
             if result.success and result.contract_number:
                 # Atualiza por financial_id
                 self.memory_manager.set_session_data(
                     financial_id, "contract_number", result.contract_number
                 )
 
+                # Converter objetos Pydantic para dicionários antes de salvar
+                original_data_dict = {}
+                if hasattr(normalized_data, "model_dump"):
+                    original_data_dict = normalized_data.model_dump()
+                elif isinstance(normalized_data, dict):
+                    original_data_dict = normalized_data
+
                 # Salva também os metadados
                 metadata = {
                     "proposal_created_at": datetime.utcnow(),
                     "proposal_bank": target_bank,
                     "proposal_sent": True,
+                    "formalization_link": result.formalization_link,
                 }
 
                 for key, value in metadata.items():
                     self.memory_manager.set_session_data(financial_id, key, value)
+
+                # Salva separadamente os dados da proposta para evitar problemas de serialização
+                proposal_data_dict = {
+                    "simulation_summary": {
+                        "available_amount": (
+                            simulation_data.get("available_amount")
+                            if simulation_data
+                            else None
+                        ),
+                        "total_amount": (
+                            simulation_data.get("total_amount")
+                            if simulation_data
+                            else None
+                        ),
+                        "interest_rate": (
+                            simulation_data.get("interest_rate")
+                            if simulation_data
+                            else None
+                        ),
+                    },
+                    "contract_number": result.contract_number,
+                    "timestamp": datetime.utcnow().isoformat(),
+                }
+
+                self.memory_manager.set_session_data(
+                    financial_id, "proposal_data", proposal_data_dict
+                )
 
                 # Define os dados na collection customer_data
                 self.memory_manager.set_session_data(
@@ -154,6 +250,28 @@ class ProposalService:
                     financial_id,
                     "customer_data.proposal_created_at",
                     datetime.utcnow(),
+                )
+
+                # Armazena dados da simulação que foram usados (garantindo que não são objetos Pydantic)
+                if simulation_data:
+                    simulation_data_serializable = {}
+                    for key, value in simulation_data.items():
+                        if hasattr(value, "model_dump"):
+                            simulation_data_serializable[key] = value.model_dump()
+                        else:
+                            simulation_data_serializable[key] = value
+
+                    self.memory_manager.set_session_data(
+                        financial_id,
+                        "customer_data.simulation_data",
+                        simulation_data_serializable,
+                    )
+
+                # Armazena o request original como dicionário serializado
+                self.memory_manager.set_session_data(
+                    financial_id,
+                    "customer_data.proposal_request",
+                    original_data_dict,
                 )
 
             return result
@@ -240,27 +358,217 @@ class ProposalService:
 
         return None
 
-    def _save_proposal_result(self, financial_id: str, result: ProposalResult):
-        """Salva o resultado da proposta no MongoDB"""
+    def _save_proposal_result(
+        self,
+        financial_id: str,
+        result: ProposalResult,
+        simulation_data: Dict[str, Any] = None,
+        customer_data: Dict[str, Any] = None,
+        original_request: Any = None,
+    ):
+        """Salva o resultado da proposta no MongoDB com dados enriquecidos"""
         try:
+            original_request_dict = {}
+            if hasattr(original_request, "model_dump"):
+                original_request_dict = original_request.model_dump()
+            elif isinstance(original_request, dict):
+                original_request_dict = original_request
+            else:
+                original_request_dict = {"data": str(original_request)}
+            print(original_request_dict["customer"], "customer")
+            extracted_customer = {}
+            phone_number = ""
+            if original_request_dict:
+                if "customer" in original_request_dict:
+                    customer = original_request_dict["customer"]
+                    extracted_customer = {
+                        "name": customer.get("name", ""),
+                        "cpf": customer.get("cpf", ""),
+                        "email": customer.get("email", ""),
+                        "phone": customer.get("phone", ""),
+                        "mother_name": customer.get("mother_name", ""),
+                    }
+                    phone_number = customer.get("phone", "")
+                elif "borrower" in original_request_dict:
+                    borrower = original_request_dict["borrower"]
+                    extracted_customer = {
+                        "name": borrower.get("name", ""),
+                        "cpf": borrower.get("cpf", ""),
+                        "email": borrower.get("email", ""),
+                        "phone": borrower.get("phoneNumber", ""),
+                        "mother_name": borrower.get("motherName", ""),
+                    }
+                    phone_number = borrower.get("phoneNumber", "")
+
+            # Se não encontrou telefone, tenta extrair de outras fontes
+            if not phone_number and "celular" in original_request_dict:
+                phone_number = original_request_dict.get("celular", "")
+
+            # Atualize o telefone no extracted_customer
+            if phone_number:
+                extracted_customer["phone"] = phone_number
+
+            # Extrair dados de endereço e outros detalhes
+            address = {}
+            if original_request_dict:
+                if "address" in original_request_dict:
+                    address_data = original_request_dict["address"]
+                    address = {
+                        "zipCode": address_data.get("zip_code", ""),
+                        "street": address_data.get("street", ""),
+                        "number": address_data.get("number", ""),
+                        "neighborhood": address_data.get("neighborhood", ""),
+                        "city": address_data.get("city", ""),
+                        "state": address_data.get("state", ""),
+                        "complement": address_data.get("complement", ""),
+                    }
+
+            # Extrair dados bancários
+            bank_data = {}
+            if original_request_dict:
+                if "bank_data" in original_request_dict:
+                    bank = original_request_dict["bank_data"]
+                    bank_data = {
+                        "bankCode": bank.get("bank_code", ""),
+                        "branchNumber": bank.get("branch_number", ""),
+                        "accountNumber": bank.get("account_number", ""),
+                        "accountDigit": bank.get("account_digit", ""),
+                        "accountType": bank.get("account_type", ""),
+                    }
+                elif "disbursementBankAccount" in original_request_dict:
+                    bank = original_request_dict["disbursementBankAccount"]
+                    bank_data = {
+                        "bankCode": bank.get("bankCode", ""),
+                        "branchNumber": bank.get("branchNumber", ""),
+                        "accountNumber": bank.get("accountNumber", ""),
+                        "accountDigit": bank.get("accountDigit", ""),
+                        "accountType": bank.get("accountType", ""),
+                    }
+
+            # Extrair dados da simulação de forma correta
+            sim_values = {}
+            if simulation_data:
+                # Primeiro, obtenha o valor correto da simulação
+                available_amount = ""
+                if "available_amount" in simulation_data:
+                    available_amount = simulation_data["available_amount"]
+                elif (
+                    "simulation_data" in simulation_data
+                    and "available_amount" in simulation_data["simulation_data"]
+                ):
+                    available_amount = simulation_data["simulation_data"][
+                        "available_amount"
+                    ]
+                interest_rate = ""
+                if "interest_rate" in simulation_data:
+                    interest_rate = simulation_data["interest_rate"]
+                elif (
+                    "simulation_data" in simulation_data
+                    and "interest_rate" in simulation_data["simulation_data"]
+                ):
+                    interest_rate = simulation_data["simulation_data"]["interest_rate"]
+
+                # Para IOF
+                iof_fee = ""
+                if "iof_amount" in simulation_data:
+                    iof_fee = simulation_data["iof_amount"]
+                elif (
+                    "simulation_data" in simulation_data
+                    and "iof_amount" in simulation_data["simulation_data"]
+                ):
+                    iof_fee = simulation_data["simulation_data"]["iof_amount"]
+
+                sim_values = {
+                    "total_released": str(available_amount),
+                    "total_to_pay": str(available_amount),
+                    "interest_rate": str(interest_rate),
+                    "iof_fee": str(iof_fee),
+                }
+
+            if phone_number:
+                clean_phone = "".join(c for c in phone_number if c.isdigit())
+                if len(clean_phone) >= 10:
+                    formatted_phone = clean_phone
+                else:
+                    formatted_phone = phone_number
+            else:
+                formatted_phone = ""
+
+            from memory import MongoDBMemoryManager
+
+            memory_manager = MongoDBMemoryManager()
+            sessions_collection = memory_manager.db["sessions"]
+
+            clean_customer_data = {
+                "customer_info": {
+                    **extracted_customer,
+                    "phone": formatted_phone,
+                },
+                "address": address,
+                "bank_data": bank_data,
+                "proposal_sent": True,
+                "formalization_initiated": False,
+                "proposal_created_at": datetime.utcnow(),
+            }
+
+            session_id = formatted_phone if formatted_phone else financial_id
+            sessions_collection.update_one(
+                {"session_id": session_id},
+                {
+                    "$set": {
+                        "contract_number": result.contract_number,
+                        "formalization_link": result.formalization_link,
+                        "financial_id": financial_id,
+                        "customer_data": clean_customer_data,
+                        "simulation_data": sim_values,
+                        "proposal_data": {
+                            "contract_number": result.contract_number,
+                            "formalization_link": result.formalization_link,
+                            "created_at": datetime.utcnow(),
+                            "total_released": sim_values.get("total_released", ""),
+                        },
+                        "timestamp": datetime.utcnow(),
+                        "phone_number": extracted_customer.get("phone"),
+                    }
+                },
+                upsert=True,
+            )
             proposal_doc = {
                 "financial_id": financial_id,
                 "bank_name": result.bank_name,
                 "contract_number": result.contract_number,
                 "formalization_link": result.formalization_link,
-                "error_message": result.error_message,
+                "customer_name": extracted_customer.get("name", ""),
+                "customer_cpf": extracted_customer.get("cpf", ""),
+                "customer_email": extracted_customer.get("email", ""),
+                "customer_phone": extracted_customer.get("phone"),
+                "phone_number": extracted_customer.get("phone"),
+                "total_released": sim_values.get("total_released", ""),
+                "total_to_pay": sim_values.get("total_released", ""),
+                "interest_rate": sim_values.get("interest_rate", ""),
+                "iof_fee": sim_values.get("iof_fee", ""),
+                "stage": "formalize",
+                "status": "PENDING_FORMALIZATION",
+                "created_at": datetime.utcnow(),
+                "customer_data": clean_customer_data,
+                "simulation_data": sim_values,
                 "success": result.success,
                 "timestamp": result.timestamp,
-                "raw_response": result.raw_response,
             }
 
-            # Insere ou atualiza o documento
             self.proposals.update_one(
                 {"financial_id": financial_id}, {"$set": proposal_doc}, upsert=True
             )
 
+            if result.contract_number:
+                self.proposals.update_one(
+                    {"contract_number": result.contract_number},
+                    {"$set": proposal_doc},
+                    upsert=True,
+                )
+
             logger.info(
-                f"Proposta salva para {financial_id} com banco {result.bank_name}"
+                f"Proposta salva para {financial_id} com banco {result.bank_name} e dados completos"
             )
 
         except Exception as e:
@@ -348,3 +656,83 @@ class ProposalService:
     def list_providers(self) -> List[str]:
         """Lista todos os provedores de proposta disponíveis"""
         return list(self._proposal_providers.keys())
+
+    def _get_simulation_data(self, financial_id: str) -> Dict[str, Any]:
+        """Busca os dados de simulação associados ao financial_id"""
+        try:
+            # Busca na coleção de simulações
+            simulation = self.simulations.find_one({"financial_id": financial_id})
+            if simulation:
+                # Remove o ID do MongoDB para evitar problemas de serialização
+                if "_id" in simulation:
+                    del simulation["_id"]
+
+                logger.info(f"Dados de simulação encontrados para {financial_id}")
+                return {
+                    "simulation_data": simulation,
+                    "available_amount": simulation.get("available_amount"),
+                    "total_amount": simulation.get("total_amount"),
+                    "interest_rate": simulation.get("interest_rate"),
+                }
+
+            # Busca na memória da sessão
+            session_simulation = self.memory_manager.get_session_data(
+                financial_id, "simulation_data"
+            )
+            if session_simulation:
+                logger.info(
+                    f"Dados de simulação encontrados na sessão para {financial_id}"
+                )
+                return {"simulation_data": session_simulation}
+
+            logger.warning(f"Nenhum dado de simulação encontrado para {financial_id}")
+            return {}
+        except Exception as e:
+            logger.error(f"Erro ao buscar dados da simulação: {str(e)}")
+            return {}
+
+    def _get_customer_data(self, financial_id: str) -> Dict[str, Any]:
+        """Busca os dados do cliente associados ao financial_id"""
+        try:
+            # Busca na memória da sessão
+            customer_data = self.memory_manager.get_session_data(
+                financial_id, "customer_data"
+            )
+            if customer_data:
+                logger.info(f"Dados do cliente encontrados para {financial_id}")
+                return {"customer_data": customer_data}
+
+            # Tenta encontrar por sessão que tenha este financial_id
+            sessions = self.db["sessions"].find_one({"financial_id": financial_id})
+            if sessions:
+                customer_data = sessions.get("customer_data", {})
+                logger.info(
+                    f"Dados do cliente encontrados na sessão para {financial_id}"
+                )
+                return {"customer_data": customer_data}
+
+            # Também busca nas propostas anteriores (se for um reenvio)
+            previous_proposal = self.proposals.find_one({"financial_id": financial_id})
+            if previous_proposal:
+                customer_data = previous_proposal.get("customer_details", {})
+                if customer_data:
+                    logger.info(
+                        f"Dados do cliente encontrados em proposta anterior para {financial_id}"
+                    )
+                    return {"customer_data": customer_data}
+
+            # Busca também diretamente na sessão pelo financial_id como session_id
+            # (alguns sistemas usam o financial_id como session_id)
+            session = self.db["sessions"].find_one({"session_id": financial_id})
+            if session:
+                customer_data = session.get("customer_data", {})
+                logger.info(
+                    f"Dados do cliente encontrados na sessão com ID {financial_id}"
+                )
+                return {"customer_data": customer_data}
+
+            logger.warning(f"Nenhum dado de cliente encontrado para {financial_id}")
+            return {}
+        except Exception as e:
+            logger.error(f"Erro ao buscar dados do cliente: {str(e)}")
+            return {}

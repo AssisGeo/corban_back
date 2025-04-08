@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from memory import MongoDBMemoryManager
 import math
 
@@ -153,9 +153,11 @@ class ChatService:
 
     async def get_chat_stats(self) -> Dict[str, Any]:
         try:
+            # Usar UTC para consistência com MongoDB
             now = datetime.utcnow()
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
+            # Contagem de mensagens
             messages_pipeline = [
                 {"$match": {"messages": {"$exists": True, "$ne": []}}},
                 {"$project": {"message_count": {"$size": "$messages"}}},
@@ -167,7 +169,7 @@ class ChatService:
             )
             total_messages = messages_result[0]["total"] if messages_result else 0
 
-            # Busca outros dados
+            # Buscar chats válidos (com mensagens)
             chats = list(
                 self.memory_manager.collection.find(
                     {"messages": {"$exists": True, "$ne": []}}
@@ -175,23 +177,45 @@ class ChatService:
             )
 
             total_sessions = len(chats)
-            active_today = sum(
-                1 for chat in chats if chat.get("last_updated", now) >= today_start
+
+            # CORREÇÃO: Usar query direta no MongoDB para contar sessões ativas hoje
+            # Isso evita problemas de timezone e formato de data
+            active_today_query = {
+                "messages": {"$exists": True, "$ne": []},
+                "last_updated": {
+                    "$gte": today_start,
+                    "$lt": today_start + timedelta(days=1),
+                },
+            }
+            active_today = self.memory_manager.collection.count_documents(
+                active_today_query
             )
-            successful_chats = sum(1 for chat in chats if chat.get("contract_number"))
+
+            # Contratos completos (verificar se contract_number existe e não está vazio)
+            successful_chats = sum(
+                1
+                for chat in chats
+                if chat.get("contract_number") and chat.get("contract_number") != ""
+            )
 
             success_rate = (
                 (successful_chats / total_sessions * 100) if total_sessions > 0 else 0
             )
 
+            # Cálculo da duração com proteção contra erros
             durations = []
             for chat in chats:
-                if chat.get("messages"):
-                    created = chat.get("created_at")
-                    last_updated = chat.get("last_updated")
-                    if created and last_updated:
-                        duration = (last_updated - created).total_seconds() / 60
-                        durations.append(duration)
+                if chat.get("created_at") and chat.get("last_updated"):
+                    try:
+                        # Calcular duração em minutos e filtrar valores absurdos
+                        duration = (
+                            chat["last_updated"] - chat["created_at"]
+                        ).total_seconds() / 60
+                        if 0 < duration < 1440:  # Entre 0 e 24 horas
+                            durations.append(duration)
+                    except Exception as e:
+                        logger.debug(f"Erro ao calcular duração: {e}")
+                        continue
 
             avg_duration = sum(durations) / len(durations) if durations else 0
 
@@ -287,17 +311,33 @@ class ChatService:
 
             base_query = {}
             if cpf_search:
-                base_query["customer_data.customer_info.cpf"] = {
-                    "$regex": cpf_search,
-                    "$options": "i",
-                }
+                base_query["$or"] = [
+                    {
+                        "customer_data.customer_info.cpf": {
+                            "$regex": cpf_search,
+                            "$options": "i",
+                        }
+                    },
+                    {"customer_data.cpf": {"$regex": cpf_search, "$options": "i"}},
+                    {"cpf": {"$regex": cpf_search, "$options": "i"}},
+                ]
 
+            # Contagem correta de documentos com e sem contrato
             total_with_contract = self.memory_manager.collection.count_documents(
-                {**base_query, "contract_number": {"$exists": True}}
+                {**base_query, "contract_number": {"$exists": True, "$ne": ""}}
             )
+
+            # Usamos negação de existência de contrato ou contrato vazio
             total_without_contract = self.memory_manager.collection.count_documents(
-                {**base_query, "contract_number": {"$exists": False}}
+                {
+                    **base_query,
+                    "$or": [
+                        {"contract_number": {"$exists": False}},
+                        {"contract_number": ""},
+                    ],
+                }
             )
+
             total = total_with_contract + total_without_contract
 
             pipeline = [
@@ -306,14 +346,19 @@ class ChatService:
                     "$addFields": {
                         "has_contract": {
                             "$cond": [
-                                {"$ifNull": ["$contract_number", False]},
+                                {
+                                    "$and": [
+                                        {"$ifNull": ["$contract_number", False]},
+                                        {"$ne": ["$contract_number", ""]},
+                                    ]
+                                },
                                 True,
                                 False,
                             ]
                         }
                     }
                 },
-                {"$sort": {"has_contract": -1, "created_at": -1}},
+                {"$sort": {"has_contract": -1, "last_updated": -1}},
                 {"$skip": skip},
                 {"$limit": per_page},
             ]
@@ -328,20 +373,34 @@ class ChatService:
 
                 def determine_stage(data: Dict[str, Any]) -> str:
                     """
-                    Determines the current stage based on the last True flag.
-                    The order of stages matters - check them in the desired sequence.
+                    Determina o estágio atual baseado na última flag True.
+                    A ordem dos estágios importa - verificamos na sequência desejada.
                     """
                     stage_flags = [
-                        ("post_formalize", data.get("post_formalize_confirmed")),
-                        ("formalize", data.get("formalize_confirmed")),
-                        ("send_proposal", data.get("proposal_sent")),
-                        ("collect_document", data.get("document_confirmed")),
-                        ("collect_bank", data.get("bank_data_confirmed")),
-                        ("collect_address", data.get("address_confirmed")),
-                        ("collect_personal", data.get("personal_data_confirmed")),
-                        ("simulate", data.get("simulation_complete")),
-                        ("check_cpf", data.get("cpf_validated")),
-                        ("start", True),  # Fallback stage
+                        (
+                            "post_formalize",
+                            customer_data.get("post_formalize_confirmed"),
+                        ),
+                        ("formalize", customer_data.get("formalize_confirmed")),
+                        (
+                            "send_proposal",
+                            customer_data.get("proposal_sent")
+                            or bool(doc.get("contract_number")),
+                        ),
+                        ("collect_document", customer_data.get("document_confirmed")),
+                        ("collect_bank", customer_data.get("bank_data_confirmed")),
+                        ("collect_address", customer_data.get("address_confirmed")),
+                        (
+                            "collect_personal",
+                            customer_data.get("personal_data_confirmed"),
+                        ),
+                        (
+                            "simulate",
+                            customer_data.get("simulation_complete")
+                            or bool(doc.get("simulation_data")),
+                        ),
+                        ("check_cpf", customer_data.get("cpf_validated")),
+                        ("start", True),  # Estágio padrão
                     ]
 
                     for stage, flag in stage_flags:
@@ -353,14 +412,17 @@ class ChatService:
                 simulation_data = doc.get("simulation_data", {})
 
                 def extract_value(text: str) -> str:
+                    """Extrai o valor numérico de um texto formatado."""
                     if not text:
                         return "Valor ainda não foi informado"
-                    if "R$" in text:
-                        return text.split("R$")[1].strip().split()[0].rstrip(",.")
-                    if "%" in text:
-                        return text.split("%")[0].strip().split()[-1].rstrip(",.")
-                    return text.rstrip(",.")
+                    if isinstance(text, str):
+                        if "R$" in text:
+                            return text.split("R$")[1].strip().split()[0].rstrip(",.")
+                        if "%" in text:
+                            return text.split("%")[0].strip().split()[-1].rstrip(",.")
+                    return str(text).rstrip(",.")
 
+                # Busca CPF em várias possíveis fontes
                 cpf = (
                     customer_data.get("customer_info", {}).get("cpf")
                     or customer_data.get("cpf")
@@ -368,15 +430,18 @@ class ChatService:
                     or "CPF não informado"
                 )
 
+                # Busca link de formalização em várias possíveis fontes
                 formalization_link = (
                     doc.get("formalization_link")
                     or customer_data.get("formalization_link")
                     or "Link não disponível"
                 )
 
+                # Busca nome do cliente em várias possíveis fontes
                 customer_name = (
                     customer_data.get("customer_info", {}).get("name")
                     or customer_data.get("borrower", {}).get("name")
+                    or doc.get("name")
                     or "Nome não informado"
                 )
 
@@ -385,24 +450,23 @@ class ChatService:
                 proposal_created_at = customer_data.get("proposal_created_at")
 
                 item = {
-                    "contract_number": doc.get(
-                        "contract_number", "Contrato não disponível"
-                    ),
+                    "contract_number": doc.get("contract_number")
+                    or "Contrato não disponível",
                     "session_id": doc.get("session_id", "Sessão não identificada"),
                     "customer_name": customer_name,
                     "cpf": cpf,
                     "stage": determine_stage(customer_data),
                     "simulation": {
                         "total_released": extract_value(
-                            simulation_data.get("total_released")
+                            simulation_data.get("total_released", "")
                         ),
                         "total_to_pay": extract_value(
-                            simulation_data.get("total_to_pay")
+                            simulation_data.get("total_to_pay", "")
                         ),
                         "interest_rate": extract_value(
-                            simulation_data.get("interest_rate")
+                            simulation_data.get("interest_rate", "")
                         ),
-                        "iof_fee": extract_value(simulation_data.get("iof_fee")),
+                        "iof_fee": extract_value(simulation_data.get("iof_fee", "")),
                     },
                     "send_by": send_by,
                     "formalization_link": formalization_link,
@@ -476,9 +540,25 @@ class ChatService:
                 {"$unwind": "$messages"},
                 {
                     "$project": {
-                        "timestamp": {"$toDate": "$messages.timestamp"},
-                        "dayOfWeek": {"$dayOfWeek": {"$toDate": "$messages.timestamp"}},
-                        "hour": {"$hour": {"$toDate": "$messages.timestamp"}},
+                        "timestamp": {
+                            "$toDate": {
+                                "$ifNull": ["$messages.timestamp", "$last_updated"]
+                            }
+                        },
+                        "dayOfWeek": {
+                            "$dayOfWeek": {
+                                "$toDate": {
+                                    "$ifNull": ["$messages.timestamp", "$last_updated"]
+                                }
+                            }
+                        },
+                        "hour": {
+                            "$hour": {
+                                "$toDate": {
+                                    "$ifNull": ["$messages.timestamp", "$last_updated"]
+                                }
+                            }
+                        },
                     }
                 },
                 {"$sort": {"timestamp": -1}},
@@ -581,21 +661,21 @@ class ChatService:
             if not document:
                 raise ValueError(f"Chat não encontrado: {session_id}")
 
-            logger.debug(f"Documento encontrado: {session_id}")
-
+            # Tratar dados do cliente
             customer_data = document.get("customer_data", {})
             customer_info = customer_data.get("customer_info", {})
             borrower = customer_data.get("borrower", {})
             proposal_data = document.get("proposal_data", {})
 
+            # Obter nome do cliente de múltiplas fontes possíveis
             customer_name = (
                 customer_info.get("name")
                 or borrower.get("name")
                 or document.get("name", "")
             )
 
+            # Obter CPF de múltiplas fontes possíveis
             customer_cpf = customer_data.get("cpf", "")
-
             if not customer_cpf:
                 customer_cpf = (
                     customer_info.get("cpf")
@@ -605,17 +685,18 @@ class ChatService:
                     or ""
                 )
 
+            # Obter email do cliente
             customer_email = (
                 borrower.get("email")
                 or customer_info.get("email")
                 or document.get("email", "")
             )
 
-            # Montar objeto de resposta
+            # Verificar contrato
             contract_number = document.get("contract_number", "")
-            has_contract = bool(contract_number)
+            has_contract = bool(contract_number) and contract_number != ""
 
-            # Determinar o estágio atual
+            # Determinar estágio atual
             def determine_stage(data: Dict[str, Any]) -> str:
                 """Determina o estágio atual com base nas flags de progresso"""
                 stage_flags = [
@@ -641,8 +722,10 @@ class ChatService:
 
                 return "start"
 
+            # Dados de simulação
             simulation_data = document.get("simulation_data", {})
 
+            # Endereço
             address = {}
             if "address" in customer_data:
                 address = customer_data.get("address", {})
@@ -663,8 +746,8 @@ class ChatService:
             if not isinstance(address, dict):
                 address = {}
 
+            # Link de formalização
             formalization_link = customer_data.get("formalization_link", "")
-
             if not formalization_link:
                 formalization_link = (
                     document.get("formalization_link", "")
@@ -672,6 +755,7 @@ class ChatService:
                     or document.get("contractFormalizationLink", "")
                 )
 
+            # Status de formalização
             formalization_status = "pending"
             if customer_data.get("formalize_confirmed") or document.get(
                 "formalization_completed"
@@ -680,68 +764,44 @@ class ChatService:
             elif customer_data.get("formalization_initiated"):
                 formalization_status = "in_progress"
 
-            created_at = None
-            for path in [
-                "created_at",
-                "metadata.created_at",
-                "customer_data.created_at",
-                "proposal_data.created_at",
-            ]:
-                parts = path.split(".")
-                value = document
-                for part in parts:
-                    if isinstance(value, dict) and part in value:
-                        value = value[part]
-                    else:
-                        value = None
-                        break
-                if value:
-                    created_at = value
-                    break
-
-            updated_at = None
-            for path in [
-                "last_updated",
-                "updated_at",
-                "metadata.updated_at",
-                "customer_data.updated_at",
-            ]:
-                parts = path.split(".")
-                value = document
-                for part in parts:
-                    if isinstance(value, dict) and part in value:
-                        value = value[part]
-                    else:
-                        value = None
-                        break
-                if value:
-                    updated_at = value
-                    break
-
-            proposal_sent_at = customer_data.get("proposal_created_at")
-
-            if not proposal_sent_at:
-                for path in [
-                    "proposal_sent_at",
+            # Data de criação
+            created_at = self._get_value_from_nested_paths(
+                document,
+                [
+                    "created_at",
+                    "metadata.created_at",
+                    "customer_data.created_at",
                     "proposal_data.created_at",
-                    "proposal_data.sent_at",
-                ]:
-                    parts = path.split(".")
-                    value = document
-                    for part in parts:
-                        if isinstance(value, dict) and part in value:
-                            value = value[part]
-                        else:
-                            value = None
-                            break
-                    if value:
-                        proposal_sent_at = value
-                        break
-
-            formalization_completed_at = document.get(
-                "formalization_completed_at", None
+                ],
             )
 
+            # Data de atualização
+            updated_at = self._get_value_from_nested_paths(
+                document,
+                [
+                    "last_updated",
+                    "updated_at",
+                    "metadata.updated_at",
+                    "customer_data.updated_at",
+                ],
+            )
+
+            # Data de envio da proposta
+            proposal_sent_at = customer_data.get("proposal_created_at")
+            if not proposal_sent_at:
+                proposal_sent_at = self._get_value_from_nested_paths(
+                    document,
+                    [
+                        "proposal_sent_at",
+                        "proposal_data.created_at",
+                        "proposal_data.sent_at",
+                    ],
+                )
+
+            # Data de formalização
+            formalization_completed_at = document.get("formalization_completed_at")
+
+            # Função para formatar datas
             def format_date(date_obj):
                 if date_obj:
                     if hasattr(date_obj, "isoformat"):
@@ -749,8 +809,8 @@ class ChatService:
                     return str(date_obj)
                 return None
 
+            # Eventos importantes
             events = []
-
             if created_at:
                 events.append(
                     {
@@ -760,13 +820,15 @@ class ChatService:
                     }
                 )
 
-            simulation_timestamp = None
-            if "timestamp" in simulation_data:
-                simulation_timestamp = simulation_data.get("timestamp")
-            elif "created_at" in simulation_data:
-                simulation_timestamp = simulation_data.get("created_at")
-            elif "simulation_date" in document:
-                simulation_timestamp = document.get("simulation_date")
+            # Timestamp de simulação
+            simulation_timestamp = self._get_value_from_nested_paths(
+                document,
+                [
+                    "simulation_data.timestamp",
+                    "simulation_data.created_at",
+                    "simulation_date",
+                ],
+            )
 
             if document.get("simulation_data"):
                 events.append(
@@ -805,7 +867,7 @@ class ChatService:
                     }
                 )
 
-            # Verificar outros eventos importantes armazenados no documento
+            # Outros eventos registrados
             if "events" in document and isinstance(document.get("events"), list):
                 for event in document.get("events"):
                     if (
@@ -817,7 +879,7 @@ class ChatService:
                             event["timestamp"] = format_date(event["timestamp"])
                         events.append(event)
 
-            # Extrair mais metadados
+            # Metadados
             metadata = {
                 "source": document.get("source", ""),
                 "platform": document.get("metadata", {}).get("platform", ""),
@@ -828,8 +890,8 @@ class ChatService:
                 "current_state": document.get("current_state", ""),
             }
 
+            # Dados bancários
             bank_data = customer_data.get("bank_data", {})
-
             if not bank_data:
                 bank_data = (
                     document.get("disbursementBankAccount", {})
@@ -838,6 +900,7 @@ class ChatService:
                     or {}
                 )
 
+            # Construir resposta
             response = {
                 "contract": {
                     "contract_number": contract_number or "Não disponível",
@@ -875,31 +938,22 @@ class ChatService:
                 "metadata": metadata,
             }
 
-            # Verificar se existem parcelas antes de adicionar
-            installments = None
+            # Adicionar parcelas se disponíveis
+            installments = self._get_value_from_nested_paths(
+                document,
+                [
+                    "installments",
+                    "proposal_data.installments",
+                    "simulation_data.installments",
+                ],
+            )
 
-            for path in [
-                "installments",
-                "proposal_data.installments",
-                "simulation_data.installments",
-            ]:
-                parts = path.split(".")
-                value = document
-                for part in parts:
-                    if isinstance(value, dict) and part in value:
-                        value = value[part]
-                    else:
-                        value = None
-                        break
-                if value and isinstance(value, list) and len(value) > 0:
-                    installments = value
-                    break
-
-            if installments:
+            if (
+                installments
+                and isinstance(installments, list)
+                and len(installments) > 0
+            ):
                 response["financial"]["installments"] = installments
-
-            # Log para debug
-            logger.info(f"Detalhes do contrato recuperados para sessão: {session_id}")
 
             return response
 
@@ -908,3 +962,18 @@ class ChatService:
         except Exception as e:
             logger.error(f"Erro ao obter detalhes do contrato: {str(e)}")
             raise
+
+    def _get_value_from_nested_paths(self, document: Dict, paths: List[str]):
+        """Obtém o primeiro valor não nulo de uma lista de caminhos aninhados"""
+        for path in paths:
+            parts = path.split(".")
+            value = document
+            for part in parts:
+                if isinstance(value, dict) and part in value:
+                    value = value[part]
+                else:
+                    value = None
+                    break
+            if value:
+                return value
+        return None

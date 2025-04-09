@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Dict, Any
 from .card_service import (
     CardService,
@@ -32,9 +32,17 @@ async def create_card_proposal(
     return await service.create_full_proposal(proposal_data)
 
 
-@router.get("/pipeline", response_model=Dict[str, Any])
-async def get_cards_pipeline(
-    page: int = 1, per_page: int = 20, service: CardService = Depends(get_card_service)
+@router.get("/{proposal_number}", response_model=Dict[str, Any])
+async def get_card_details(
+    proposal_number: str, service: CardService = Depends(get_card_service)
 ):
-    """Retorna dados para a visualização da esteira de cartões"""
-    return await service.get_pipeline_data(page, per_page)
+    """Obtém detalhes completos de um cartão pelo número da proposta."""
+    card_details = await service.get_card_details(proposal_number)
+
+    if not card_details:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cartão com proposta {proposal_number} não encontrado",
+        )
+
+    return card_details

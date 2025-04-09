@@ -86,3 +86,11 @@ class BMGMongoRepository:
         collection = self.db[collection_name]
         cursor = collection.find(query).skip(skip).limit(limit)
         return [self.parse_mongo_return(doc) for doc in cursor]
+
+    def get_from_collection_by_proposal(self, collection_name, proposal_number):
+        """Busca documento pelo número da proposta."""
+        collection = self.db[collection_name]
+        result = collection.find_one({"proposal_number": proposal_number})
+        if not result:
+            return None
+        return self.parse_mongo_return(result)

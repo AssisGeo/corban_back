@@ -373,3 +373,77 @@ class CardService:
             return "verified"
         else:
             return "pending"
+
+    async def get_card_details(self, proposal_number: str):
+        """
+        Obtém detalhes completos de um cartão pelo número da proposta.
+
+        Args:
+            proposal_number: O número da proposta do cartão
+
+        Returns:
+            Detalhes completos do cartão ou None se não encontrado
+        """
+        repository = BMGMongoRepository()
+        card = repository.get_from_collection_by_proposal(
+            self.collection, proposal_number
+        )
+
+        if not card:
+            return None
+
+        in100_data = card.get("in100", {}).get("consulta", {})
+        card_simulation = card.get("card_simulation", {})
+
+        return {
+            "customer_info": {
+                "id": card.get("id"),
+                "name": card.get("name", ""),
+                "cpf": card.get("cpf", ""),
+                "birthdate": card.get("birthdate", ""),
+                "phone": card.get("phone", ""),
+                "email": card.get("email", ""),
+                "address": card.get("address", {}),
+                "mother_name": card.get("mother_name", ""),
+                "identity_document": card.get("identity_document", {}),
+            },
+            "benefit_info": {
+                "benefit_number": card.get("benefit", ""),
+                "benefit_type": in100_data.get("especie", ""),
+                "agency": in100_data.get("agenciaPagadora", ""),
+                "bank_code": in100_data.get("cbcIfPagadora", ""),
+                "account_number": in100_data.get("contaCorrente", ""),
+            },
+            "card_info": {
+                "proposal_number": card.get("proposal_number", ""),
+                "status": self._determine_card_status(card),
+                "stage": self._determine_card_stage(card),
+                "card_limit": card_simulation.get("limit", 0),
+                "withdrawal_limit": card_simulation.get("withdrawal_limit", 0),
+                "created_at": card.get("created_at", ""),
+                "updated_at": card.get("updated_at", ""),
+            },
+            "in100_data": {
+                "full_data": in100_data,
+                "available_margin": in100_data.get("margemDisponivel", "0"),
+                "committed_value": in100_data.get("valorComprometido", "0"),
+                "income_value": in100_data.get("valorLiquido", "0"),
+            },
+            "steps_completed": {
+                "first_step": True,
+                "second_step": "card_simulation" in card,
+                "third_step": "address" in card and "identity_document" in card,
+                "fourth_step": "proposal_number" in card,
+            },
+        }
+
+    def _determine_card_stage(self, card_data):
+        """Determina o estágio atual do cartão com base nos dados."""
+        if "proposal_number" in card_data:
+            return "proposal_sent"
+        elif "card_simulation" in card_data:
+            return "simulated"
+        elif "in100" in card_data:
+            return "in100_consulted"
+        else:
+            return "started"

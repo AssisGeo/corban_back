@@ -18,6 +18,7 @@ import uvicorn
 from services.evolution.router import router as evolution_router
 from services.simulations.proposal_router import router as proposal_router
 from services.bmg.card_router import router as card_router
+from services.simulations.batch_router import router as batch_simulation_router
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -72,6 +73,7 @@ app.include_router(bmg_router)
 app.include_router(evolution_router)
 app.include_router(proposal_router)
 app.include_router(card_router)
+app.include_router(batch_simulation_router)
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8002, reload=True)

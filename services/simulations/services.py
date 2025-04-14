@@ -21,6 +21,7 @@ class SimulationService:
         self.mongo_client = MongoClient(os.getenv("MONGODB_URL"))
         self.db = self.mongo_client["fgts_agent"]
         self.simulations = self.db["fgts_simulations"]
+        self.bank_config_collection = self.db["bank_configs"]
 
         # Adaptadores
         self.register_adapter(QIBankAdapter())
@@ -37,6 +38,43 @@ class SimulationService:
         self._adapters[adapter.bank_name] = adapter
         logger.info(f"Adaptador registrado: {adapter.bank_name}")
 
+    def is_bank_active(self, bank_name: str, feature: str = "simulation") -> bool:
+        """Verifica se um banco está ativo para uma determinada feature"""
+        try:
+            config = self.bank_config_collection.find_one({})
+            if not config or "banks" not in config:
+                return True
+
+            if bank_name not in config["banks"]:
+                return False
+
+            bank_info = config["banks"][bank_name]
+            return bank_info.get("active", True) and feature in bank_info.get(
+                "features", []
+            )
+        except Exception as e:
+            logger.error(f"Erro ao verificar se banco está ativo: {str(e)}")
+            return True
+
+    def get_active_banks(self, feature: str = "simulation") -> List[str]:
+        """Retorna a lista de bancos ativos para uma determinada feature"""
+        try:
+            config = self.bank_config_collection.find_one({})
+            if not config or "banks" not in config:
+                return list(self._banks.keys())
+
+            active_banks = []
+            for bank_name, bank_info in config["banks"].items():
+                if bank_info.get("active", True) and feature in bank_info.get(
+                    "features", []
+                ):
+                    active_banks.append(bank_name)
+
+            return active_banks
+        except Exception as e:
+            logger.error(f"Erro ao obter bancos ativos: {str(e)}")
+            return list(self._banks.keys())
+
     async def simulate(
         self, cpf: str, bank_name: str | None = None
     ) -> List[NormalizedSimulationResponse]:
@@ -44,15 +82,25 @@ class SimulationService:
         raw_results = []
         normalized_results = []
 
+        active_banks = self.get_active_banks(feature="simulation")
+
         if bank_name:
             if bank_name not in self._banks:
                 raise ValueError(f"Banco não suportado: {bank_name}")
+
+            if bank_name not in active_banks:
+                raise ValueError(f"Banco {bank_name} não está ativo para simulações")
+
             raw_results.append(await self._banks[bank_name].simulate(cpf))
         else:
-            for bank in self._banks.values():
-                raw_results.append(await bank.simulate(cpf))
+            for bank_name in active_banks:
+                if bank_name in self._banks:
+                    raw_results.append(await self._banks[bank_name].simulate(cpf))
+                else:
+                    logger.warning(
+                        f"Banco ativo na configuração, mas não registrado: {bank_name}"
+                    )
 
-        # Normaliza os resultados usando os adaptadores
         for result in raw_results:
             if result.bank_name in self._adapters and result.success:
                 adapter = self._adapters[result.bank_name]
@@ -201,24 +249,56 @@ class SimulationService:
         }
 
     def list_banks(self) -> Dict[str, Any]:
-        """Lista todos os bancos disponíveis"""
-        bank_infos = [bank.bank_info for bank in self._banks.values()]
-        active_banks = [info for info in bank_infos if info.active]
-        inactive_banks = [info for info in bank_infos if not info.active]
+        """Lista todos os bancos disponíveis para simulação com base na configuração"""
+        try:
+            active_banks = []
+            inactive_banks = []
 
-        return {
-            "active_banks": [bank.dict() for bank in active_banks],
-            "inactive_banks": [bank.dict() for bank in inactive_banks],
-            "total_active": len(active_banks),
-            "system_status": {
-                "operational": len(active_banks) > 0,
-                "message": (
-                    "Sistema operacional"
-                    if active_banks
-                    else "Nenhum banco disponível no momento"
-                ),
-            },
-        }
+            for bank_name, bank in self._banks.items():
+                bank_info = bank.bank_info
+
+                is_active = self.is_bank_active(bank_name, "simulation")
+
+                bank_dict = bank_info.dict()
+                bank_dict["active"] = is_active
+
+                if is_active:
+                    active_banks.append(bank_dict)
+                else:
+                    inactive_banks.append(bank_dict)
+
+            return {
+                "active_banks": active_banks,
+                "inactive_banks": inactive_banks,
+                "total_active": len(active_banks),
+                "system_status": {
+                    "operational": len(active_banks) > 0,
+                    "message": (
+                        "Sistema operacional"
+                        if active_banks
+                        else "Nenhum banco disponível no momento"
+                    ),
+                },
+            }
+        except Exception as e:
+            logger.error(f"Erro ao listar bancos: {str(e)}")
+            bank_infos = [bank.bank_info for bank in self._banks.values()]
+            active_banks = [info.dict() for info in bank_infos if info.active]
+            inactive_banks = [info.dict() for info in bank_infos if not info.active]
+
+            return {
+                "active_banks": active_banks,
+                "inactive_banks": inactive_banks,
+                "total_active": len(active_banks),
+                "system_status": {
+                    "operational": len(active_banks) > 0,
+                    "message": (
+                        "Sistema operacional"
+                        if active_banks
+                        else "Nenhum banco disponível no momento"
+                    ),
+                },
+            }
 
     def get_unique_cpfs(self) -> List[str]:
         """Retorna lista de CPFs únicos que têm simulações"""

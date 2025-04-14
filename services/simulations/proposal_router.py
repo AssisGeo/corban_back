@@ -4,10 +4,11 @@ from .proposal_service import ProposalService
 from .banks.vctex_proposal import VCTEXBankProposal
 from .banks.facta_proposal import FactaBankProposal
 from models.normalized.proposal import NormalizedProposalRequest
-from .adapters.qi_adapter import QIBankAdapter
 from .adapters.vctex_adapter import VCTEXBankAdapter
 from .adapters.facta_adapter import FactaBankAdapter
 import logging
+
+# from .adapters.qi_adapter import QIBankAdapter
 
 
 logger = logging.getLogger(__name__)
@@ -19,14 +20,24 @@ def get_proposal_service() -> ProposalService:
     """Dependency que configura e retorna o serviço de propostas"""
     service = ProposalService()
 
-    #  adaptadores
-    service.register_adapter(QIBankAdapter())
+    # service.register_adapter(QIBankAdapter())
     service.register_adapter(VCTEXBankAdapter())
     service.register_adapter(FactaBankAdapter())
 
-    #  provedores
-    service.register_provider(VCTEXBankProposal())
-    service.register_provider(FactaBankProposal())
+    all_providers = {
+        "VCTEX": VCTEXBankProposal(),
+        "FACTA": FactaBankProposal(),
+    }
+
+    # Consultar quais provedores estão ativos
+    active_providers = service.get_active_banks(feature="proposal")
+
+    # Registrar apenas os provedores ativos
+    for provider_name, provider in all_providers.items():
+        if provider_name in active_providers:
+            service.register_provider(provider)
+        else:
+            logger.info(f"Provedor {provider_name} não está ativo, não será registrado")
 
     return service
 

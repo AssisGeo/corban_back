@@ -7,6 +7,9 @@ from .banks.facta_bank import FactaBankSimulator
 from pydantic import BaseModel
 from datetime import datetime
 from models.normalized.simulation import NormalizedSimulationResponse
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class SimulationHistoryItem(BaseModel):
@@ -23,9 +26,21 @@ router = APIRouter(prefix="/api/v1/simulation", tags=["simulation"])
 
 def get_simulation_service() -> SimulationService:
     service = SimulationService()
-    service.register_bank(QIBankSimulator())
-    service.register_bank(VCTEXBankSimulator())
-    service.register_bank(FactaBankSimulator())
+
+    # Criar todos os bancos disponíveis
+    all_banks = {
+        "QI": QIBankSimulator(),
+        "VCTEX": VCTEXBankSimulator(),
+        "FACTA": FactaBankSimulator(),
+    }
+
+    active_banks = service.get_active_banks(feature="simulation")
+
+    for bank_name, bank in all_banks.items():
+        if bank_name in active_banks:
+            service.register_bank(bank)
+        else:
+            logger.info(f"Banco {bank_name} não está ativo, não será registrado")
 
     return service
 

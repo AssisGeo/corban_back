@@ -21,6 +21,44 @@ class ProposalService:
         self.proposals = self.db["fgts_proposals"]
         self.simulations = self.db["fgts_simulations"]
         self.memory_manager = MongoDBMemoryManager()
+        self.bank_config_collection = self.db["bank_configs"]
+
+    def get_active_banks(self, feature: str = "proposal") -> List[str]:
+        """Retorna a lista de bancos ativos para uma determinada feature"""
+        try:
+            config = self.bank_config_collection.find_one({})
+            if not config or "banks" not in config:
+                return list(self._proposal_providers.keys())
+
+            active_banks = []
+            for bank_name, bank_info in config["banks"].items():
+                if bank_info.get("active", True) and feature in bank_info.get(
+                    "features", []
+                ):
+                    active_banks.append(bank_name)
+
+            return active_banks
+        except Exception as e:
+            logger.error(f"Erro ao obter bancos ativos: {str(e)}")
+            return list(self._proposal_providers.keys())
+
+    def is_bank_active(self, bank_name: str, feature: str = "proposal") -> bool:
+        """Verifica se um banco está ativo para uma determinada feature"""
+        try:
+            config = self.bank_config_collection.find_one({})
+            if not config or "banks" not in config:
+                return True
+
+            if bank_name not in config["banks"]:
+                return False
+
+            bank_info = config["banks"][bank_name]
+            return bank_info.get("active", True) and feature in bank_info.get(
+                "features", []
+            )
+        except Exception as e:
+            logger.error(f"Erro ao verificar se banco está ativo: {str(e)}")
+            return True
 
     def register_provider(self, provider: BankProposal):
         """Registra um novo provedor de proposta no serviço"""
@@ -94,15 +132,28 @@ class ProposalService:
                     )
 
             if not target_bank:
-                # Se não foi especificado, consulta pelo financialId
                 target_bank = self._get_bank_for_financial_id(financial_id)
 
                 if not target_bank:
-                    # Padrão para VCTEX se não encontrar
-                    target_bank = "VCTEX"
+                    active_banks = self.get_active_banks("proposal")
+                    if active_banks:
+                        target_bank = active_banks[0]
+                    else:
+                        target_bank = "VCTEX"
+
                     logger.warning(
-                        f"Banco não identificado para o ID {financial_id}, usando padrão: {target_bank}"
+                        f"Banco não identificado para o ID {financial_id}, usando: {target_bank}"
                     )
+
+            if not self.is_bank_active(target_bank, "proposal"):
+                error_msg = f"Banco {target_bank} não está ativo para propostas"
+                logger.error(error_msg)
+                return ProposalResult(
+                    bank_name=target_bank,
+                    error_message=error_msg,
+                    success=False,
+                    raw_response={"error": error_msg},
+                )
 
             # Verificar se o provedor está registrado
             if target_bank not in self._proposal_providers:
@@ -653,8 +704,9 @@ class ProposalService:
         }
 
     def list_providers(self) -> List[str]:
-        """Lista todos os provedores de proposta disponíveis"""
-        return list(self._proposal_providers.keys())
+        """Lista todos os provedores de proposta disponíveis e ativos"""
+        active_providers = self.get_active_banks("proposal")
+        return [bank for bank in active_providers if bank in self._proposal_providers]
 
     def _get_simulation_data(self, financial_id: str) -> Dict[str, Any]:
         """Busca os dados de simulação associados ao financial_id"""

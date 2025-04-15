@@ -263,7 +263,7 @@ class FactaApi:
         cpf: str,
         parcelas: List[Dict[str, str]],
         taxa: str = "1.8",
-        tabela: str = "57851",
+        tabela: str = None,
     ) -> Dict[str, Any]:
         """Simula o valor líquido para antecipação do FGTS usando JSON."""
         await self.start_session()

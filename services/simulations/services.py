@@ -1,4 +1,4 @@
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from .banks.base import BankSimulator, SimulationResult
 from .adapters.base import BankAdapter
 from .adapters.qi_adapter import QIBankAdapter
@@ -82,6 +82,7 @@ class SimulationService:
         raw_results = []
         normalized_results = []
 
+        # Obter bancos ativos para simulação
         active_banks = self.get_active_banks(feature="simulation")
 
         if bank_name:
@@ -91,16 +92,45 @@ class SimulationService:
             if bank_name not in active_banks:
                 raise ValueError(f"Banco {bank_name} não está ativo para simulações")
 
-            raw_results.append(await self._banks[bank_name].simulate(cpf))
+            # Buscar tabela ativa para o banco usando o método auxiliar
+            table_id = self._get_active_table_for_bank(bank_name)
+            if table_id:
+                logger.info(
+                    f"Usando tabela {table_id} para simulação com banco {bank_name}"
+                )
+            else:
+                logger.warning(
+                    f"Nenhuma tabela ativa encontrada para banco {bank_name}, usando padrão"
+                )
+
+            # Chama o simulador com a tabela (mesmo que seja None)
+            raw_results.append(
+                await self._banks[bank_name].simulate(cpf, table_id=table_id)
+            )
         else:
+            # Simular em todos os bancos ativos
             for bank_name in active_banks:
                 if bank_name in self._banks:
-                    raw_results.append(await self._banks[bank_name].simulate(cpf))
+                    # Buscar tabela ativa para o banco usando o método auxiliar
+                    table_id = self._get_active_table_for_bank(bank_name)
+                    if table_id:
+                        logger.info(
+                            f"Usando tabela {table_id} para simulação com banco {bank_name}"
+                        )
+                    else:
+                        logger.warning(
+                            f"Nenhuma tabela ativa encontrada para banco {bank_name}, usando padrão"
+                        )
+
+                    raw_results.append(
+                        await self._banks[bank_name].simulate(cpf, table_id=table_id)
+                    )
                 else:
                     logger.warning(
                         f"Banco ativo na configuração, mas não registrado: {bank_name}"
                     )
 
+        # Normaliza os resultados usando os adaptadores
         for result in raw_results:
             if result.bank_name in self._adapters and result.success:
                 adapter = self._adapters[result.bank_name]
@@ -344,3 +374,29 @@ class SimulationService:
 
         adapter = self._adapters[bank_name]
         return adapter.prepare_proposal_request(request_data)
+
+    def _get_active_table_for_bank(self, bank_name: str) -> Optional[str]:
+        """
+        Retorna o ID da tabela ativa para um banco específico
+
+        Args:
+            bank_name: Nome do banco
+
+        Returns:
+            ID da tabela ativa ou None se não encontrar
+        """
+        try:
+            config = self.db["table_configs"].find_one({})
+            if not config or "tables" not in config:
+                return None
+
+            for table_id, table_info in config["tables"].items():
+                if table_info.get("bank_name") == bank_name and table_info.get(
+                    "active", True
+                ):
+                    return table_id
+
+            return None
+        except Exception as e:
+            logger.error(f"Erro ao obter tabela ativa para banco {bank_name}: {str(e)}")
+            return None

@@ -23,9 +23,10 @@ class FactaBankSimulator(BankSimulator):
             active=True,
         )
 
-    async def simulate(self, cpf: str) -> SimulationResult:
+    async def simulate(self, cpf: str, table_id: str = None) -> SimulationResult:
         try:
-            # Primeiro checa base offline
+            tabela = table_id or "57851"
+
             offline_result = await self.client.consultar_base_offline(cpf)
 
             if "erro" in offline_result and offline_result.get("erro"):
@@ -54,7 +55,7 @@ class FactaBankSimulator(BankSimulator):
             # Simular valor
             parcelas_payload = self.client.criar_payload_parcelas(saldo_result)
             simulation_result = await self.client.simular_valor_fgts(
-                cpf, parcelas_payload
+                cpf, parcelas_payload, taxa="1.8", tabela=tabela
             )
 
             if "erro" in simulation_result and simulation_result.get("erro"):

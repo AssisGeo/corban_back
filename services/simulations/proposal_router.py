@@ -62,11 +62,14 @@ async def create_proposal(
 
         if not result.success:
             logger.error(f"Erro na proposta: {result.error_message}")
-            return {
-                "success": False,
-                "error": result.error_message,
-                "bank_name": result.bank_name,
-            }
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "success": False,
+                    "error": result.error_message,
+                    "bank_name": result.bank_name,
+                },
+            )
 
         return {
             "success": True,

@@ -25,12 +25,21 @@ class VCTEXBankSimulator(BankSimulator):
             active=True,
         )
 
-    async def simulate(self, cpf: str) -> SimulationResult:
+    async def simulate(self, cpf: str, table_id: str = None) -> SimulationResult:
         try:
-            # Preparar os dados da simulação
+
+            fee_schedule_id = 0
+            if table_id is not None:
+                try:
+                    fee_schedule_id = int(table_id)
+                except ValueError:
+                    logger.warning(
+                        f"Valor de tabela inválido para VCTEX: {table_id}, usando 0"
+                    )
+
             simulation_data = {
                 "clientCpf": cpf,
-                "feeScheduleId": 0,
+                "feeScheduleId": fee_schedule_id,
             }
 
             # Realizar a simulação usando o cliente VCTEX

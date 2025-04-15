@@ -132,20 +132,19 @@ class ProposalService:
                     )
 
             if not target_bank:
+                # Se não foi especificado, consulta pelo financialId
                 target_bank = self._get_bank_for_financial_id(financial_id)
 
                 if not target_bank:
-                    active_banks = self.get_active_banks("proposal")
-                    if active_banks:
-                        target_bank = active_banks[0]
-                    else:
-                        target_bank = "VCTEX"
-
+                    # Padrão para VCTEX se não encontrar
+                    target_bank = "VCTEX"
                     logger.warning(
-                        f"Banco não identificado para o ID {financial_id}, usando: {target_bank}"
+                        f"Banco não identificado para o ID {financial_id}, usando padrão: {target_bank}"
                     )
 
-            if not self.is_bank_active(target_bank, "proposal"):
+            # Verificar se o banco está ativo para propostas
+            active_banks = self.get_active_banks(feature="proposal")
+            if target_bank not in active_banks:
                 error_msg = f"Banco {target_bank} não está ativo para propostas"
                 logger.error(error_msg)
                 return ProposalResult(
@@ -175,6 +174,17 @@ class ProposalService:
                     error_message=error_msg,
                     success=False,
                     raw_response={"error": error_msg},
+                )
+
+            # Obter a tabela ativa para o banco alvo
+            table_id = self._get_active_table_for_bank(target_bank)
+            if table_id:
+                logger.info(
+                    f"Usando tabela {table_id} para proposta com banco {target_bank}"
+                )
+            else:
+                logger.warning(
+                    f"Nenhuma tabela ativa encontrada para banco {target_bank}, usando padrão"
                 )
 
             if isinstance(proposal_data, dict):
@@ -219,6 +229,22 @@ class ProposalService:
                 logger.info(
                     f"Dados convertidos para formato específico do banco {target_bank}"
                 )
+
+                # Adicionar o ID da tabela aos dados específicos do banco
+                if table_id:
+                    if target_bank == "FACTA":
+                        if isinstance(bank_specific_data, dict):
+                            bank_specific_data["tabela"] = table_id
+                    elif target_bank in ["VCTEX", "QI"]:
+                        if isinstance(bank_specific_data, dict):
+                            try:
+                                bank_specific_data["feeScheduleId"] = int(table_id)
+                            except ValueError:
+                                logger.warning(
+                                    f"Tabela {table_id} não é um número válido para feeScheduleId"
+                                )
+                                bank_specific_data["feeScheduleId"] = 0
+
             except Exception as e:
                 error_msg = (
                     f"Erro ao adaptar dados para o banco {target_bank}: {str(e)}"
@@ -787,3 +813,29 @@ class ProposalService:
         except Exception as e:
             logger.error(f"Erro ao buscar dados do cliente: {str(e)}")
             return {}
+
+    def _get_active_table_for_bank(self, bank_name: str) -> Optional[str]:
+        """
+        Retorna o ID da tabela ativa para um banco específico
+
+        Args:
+            bank_name: Nome do banco
+
+        Returns:
+            ID da tabela ativa ou None se não encontrar
+        """
+        try:
+            config = self.db["table_configs"].find_one({})
+            if not config or "tables" not in config:
+                return None
+
+            for table_id, table_info in config["tables"].items():
+                if table_info.get("bank_name") == bank_name and table_info.get(
+                    "active", True
+                ):
+                    return table_id
+
+            return None
+        except Exception as e:
+            logger.error(f"Erro ao obter tabela ativa para banco {bank_name}: {str(e)}")
+            return None

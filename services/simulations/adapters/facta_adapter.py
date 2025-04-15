@@ -1,4 +1,3 @@
-# services/simulations/adapters/facta_adapter.py
 from .base import BankAdapter
 from models.normalized.simulation import NormalizedSimulationResponse
 import re
@@ -77,11 +76,10 @@ class FactaBankAdapter(BankAdapter):
         except ValueError:
             formatted_issue_date = issue_date
 
-        # Formatar telefone para o padrão do FACTA
         phone = normalized_request.customer.phone
         formatted_phone = self._format_phone(phone)
+        issuing_authority = normalized_request.document.issuing_authority.upper()
 
-        # Preparar payload para FACTA
         return {
             "id_simulador": simulation_id,
             "cpf": normalized_request.customer.cpf,
@@ -92,10 +90,10 @@ class FactaBankAdapter(BankAdapter):
                 if normalized_request.customer.gender.upper() in ["M", "MALE"]
                 else "F"
             ),
-            "estado_civil": 1,  # Padrão: Solteiro
+            "estado_civil": 1,
             "rg": normalized_request.document.number,
-            "estado_rg": normalized_request.document.issuing_state,
-            "orgao_emissor": normalized_request.document.issuing_authority,
+            "estado_rg": normalized_request.document.issuing_state.upper(),
+            "orgao_emissor": issuing_authority,
             "data_expedicao": formatted_issue_date,
             "celular": formatted_phone,
             "email": normalized_request.customer.email or "",
@@ -105,7 +103,7 @@ class FactaBankAdapter(BankAdapter):
             "numero": normalized_request.address.number,
             "bairro": normalized_request.address.neighborhood,
             "cidade": normalized_request.address.city,
-            "estado": normalized_request.address.state,
+            "estado": normalized_request.address.state.upper(),
             "complemento": normalized_request.address.complement or "",
             "banco": normalized_request.bank_data.bank_code,
             "agencia": normalized_request.bank_data.branch_number,

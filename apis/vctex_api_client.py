@@ -12,6 +12,7 @@ from cachetools import TTLCache
 import structlog
 from aiohttp import TCPConnector, ClientTimeout
 import ssl
+from utils.api_credentials import get_credential
 
 load_dotenv()
 
@@ -83,8 +84,8 @@ class VCTEXAPIClient:
             if cached_token and not self._is_token_expired():
                 return cached_token
 
-            cpf = os.getenv("CPF")
-            password = os.getenv("PASSWORD")
+            cpf = get_credential("VCTEX_USER")
+            password = get_credential("VCTEX_PASSWORD")
             if not cpf or not password:
                 raise ValueError("Credenciais não configuradas (CPF/PASSWORD)")
 

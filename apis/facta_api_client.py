@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import json
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
+from utils.api_credentials import get_credential
 
 load_dotenv()
 
@@ -103,18 +104,9 @@ class FactaApi:
         self.proposta_envio_link_url: str = f"{self.base_url}/proposta/envio-link"
 
         # Credenciais
-        self.user: str = user or os.getenv("FACTA_USER")
-        self.password: str = password or os.getenv("FACTA_PASSWORD")
+        self.user: str = get_credential("FACTA_USER")
+        self.password: str = get_credential("FACTA_PASSWORD")
         self.session: Optional[aiohttp.ClientSession] = None
-        self.check_environment_variables()
-
-    def check_environment_variables(self) -> None:
-        """Verifica se as variáveis de ambiente estão carregadas corretamente."""
-        required_vars = ["FACTA_USER", "FACTA_PASSWORD"]
-        for var in required_vars:
-            if not os.getenv(var):
-                logger.error(f"Variável de ambiente {var} não está definida.")
-                raise EnvironmentError(f"Variável de ambiente {var} não está definida.")
 
     async def start_session(self) -> None:
         """Inicia uma sessão HTTP com os headers necessários."""

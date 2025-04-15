@@ -21,6 +21,7 @@ from services.bmg.card_router import router as card_router
 from services.simulations.batch_router import router as batch_simulation_router
 from services.bank_config.router import router as bank_config_router
 from services.table_config.router import router as table_config_router
+from services.api_credentials.router import router as api_credentials_router
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -78,6 +79,7 @@ app.include_router(card_router)
 app.include_router(batch_simulation_router)
 app.include_router(bank_config_router)
 app.include_router(table_config_router)
+app.include_router(api_credentials_router)
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8002, reload=True)

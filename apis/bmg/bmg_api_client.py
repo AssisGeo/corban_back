@@ -1,4 +1,3 @@
-import os
 import re
 import http.client
 from fastapi import HTTPException
@@ -26,15 +25,16 @@ from apis.bmg.payloads.benefit_card.save_proposal import (
     SaveProposalRequest,
 )
 from apis.helpers.xml_to_dict import xml_to_dict
+from utils.api_credentials import get_credential
 
 
 class BmgApiClient:
     def __init__(self):
         self.base_url = "https://ws1.bmgconsig.com.br/webservices"
-        self.login = os.getenv("BMG_BOT_LOGIN")
-        self.password = os.getenv("BMG_BOT_PASSWORD")
-        self.login_consig = os.getenv("BMG_CONSIG_LOGIN")
-        self.password_consig = os.getenv("BMG_CONSIG_PASSWORD")
+        self.login = get_credential("BMG_BOT_LOGIN")
+        self.password = get_credential("BMG_BOT_PASSWORD")
+        self.login_consig = get_credential("BMG_CONSIG_LOGIN")
+        self.password_consig = get_credential("BMG_CONSIG_PASSWORD")
 
     def request_in100(self, data: In100Request):
         repository = BMGMongoRepository()

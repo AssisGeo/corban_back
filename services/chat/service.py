@@ -27,15 +27,7 @@ class ChatService:
         self, page: int = 1, per_page: int = 20, search: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Lista chats com paginação.
-
-        Args:
-            page: Número da página (começa em 1)
-            per_page: Número de itens por página
-            search: Termo de busca opcional
-
-        Returns:
-            Dict com itens paginados e informações de paginação
+        Lista chats com paginação, ordenados pelo timestamp da última mensagem.
         """
         try:
             page = max(1, page)
@@ -68,12 +60,24 @@ class ChatService:
             total = self.memory_manager.collection.count_documents(base_query)
             total_pages = math.ceil(total / per_page) if total > 0 else 1
 
-            chats = list(
-                self.memory_manager.collection.find(base_query)
-                .sort("last_updated", -1)
-                .skip(skip)
-                .limit(per_page)
-            )
+            pipeline = [
+                {"$match": base_query},
+                {
+                    "$addFields": {
+                        "ultimo_timestamp": {
+                            "$ifNull": [
+                                {"$arrayElemAt": ["$messages.timestamp", -1]},
+                                "$last_updated",
+                            ]
+                        }
+                    }
+                },
+                {"$sort": {"ultimo_timestamp": -1}},
+                {"$skip": skip},
+                {"$limit": per_page},
+            ]
+
+            chats = list(self.memory_manager.collection.aggregate(pipeline))
 
             items = []
             for chat in chats:
@@ -247,7 +251,7 @@ class ChatService:
                 if isinstance(msg, dict):
                     sender = None
                     content = None
-
+                    timestamp = msg["timestamp"]
                     # Formato original do bot
                     if "type" in msg and "data" in msg:
                         msg_type = msg["type"]
@@ -268,7 +272,13 @@ class ChatService:
                             if customer_name:
                                 sender = customer_name
 
-                        messages.append({"sender": sender, "content": content})
+                        messages.append(
+                            {
+                                "sender": sender,
+                                "content": content,
+                                "timestamp": timestamp,
+                            }
+                        )
 
             customer_name = (
                 document.get("customer_data", {}).get("customer_info", {}).get("name")

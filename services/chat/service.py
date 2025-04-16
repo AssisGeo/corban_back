@@ -304,7 +304,7 @@ class ChatService:
     ) -> Dict[str, Any]:
         """
         Obtém dados da pipeline com paginação, tratando todos os documentos como uma única coleção.
-        Versão corrigida para evitar registros duplicados entre páginas.
+        Ordenados por: contratos, valores liberados e timestamp da última mensagem.
         """
         try:
             page = max(1, page)
@@ -325,14 +325,54 @@ class ChatService:
                     {"cpf": {"$regex": cpf_search, "$options": "i"}},
                 ]
 
-            # Usar o $group para garantir que cada session_id apareça apenas uma vez
             pipeline = [
                 {"$match": base_query},
+                {
+                    "$addFields": {
+                        "ultimo_timestamp": {
+                            "$ifNull": [
+                                {"$arrayElemAt": ["$messages.timestamp", -1]},
+                                "$last_updated",
+                            ]
+                        },
+                        # Verificar se há valor liberado para ordenação
+                        "tem_valor_liberado": {
+                            "$cond": [
+                                {
+                                    "$and": [
+                                        {"$ifNull": ["$simulation_data", False]},
+                                        {
+                                            "$ifNull": [
+                                                "$simulation_data.total_released",
+                                                False,
+                                            ]
+                                        },
+                                        {
+                                            "$ne": [
+                                                "$simulation_data.total_released",
+                                                "",
+                                            ]
+                                        },
+                                        {
+                                            "$ne": [
+                                                "$simulation_data.total_released",
+                                                "0",
+                                            ]
+                                        },
+                                        {"$ne": ["$simulation_data.total_released", 0]},
+                                    ]
+                                },
+                                True,
+                                False,
+                            ]
+                        },
+                    }
+                },
                 {
                     "$group": {
                         "_id": "$session_id",
                         "doc": {"$first": "$$ROOT"},
-                        "last_updated": {"$max": "$last_updated"},
+                        "ultimo_timestamp": {"$max": "$ultimo_timestamp"},
                     }
                 },
                 {"$replaceRoot": {"newRoot": "$doc"}},
@@ -352,10 +392,22 @@ class ChatService:
                         }
                     }
                 },
-                {"$sort": {"has_contract": -1, "last_updated": -1}},
+                # Ordenação em 3 níveis:
+                # 1. Contratos existentes
+                # 2. Presença de valor liberado
+                # 3. Timestamp da última mensagem
+                {
+                    "$sort": {
+                        "has_contract": -1,
+                        "tem_valor_liberado": -1,
+                        "ultimo_timestamp": -1,
+                    }
+                },
                 {"$skip": skip},
                 {"$limit": per_page},
             ]
+
+            # O resto do código permanece o mesmo...
 
             # Calcular contagens com a mesma lógica de agrupamento para consistência
             count_pipeline = [
@@ -417,6 +469,7 @@ class ChatService:
             # Processar os resultados
             pipeline_items = []
             for doc in chats:
+                # O processamento dos itens continua como antes
                 customer_data = doc.get("customer_data", {})
 
                 def determine_stage(data: Dict[str, Any]) -> str:
@@ -493,9 +546,21 @@ class ChatService:
                     or "Nome não informado"
                 )
 
+                # Verificar se tem valor liberado (para exibição no frontend)
+                tem_valor_liberado = False
+                if simulation_data and simulation_data.get("total_released"):
+                    valor = simulation_data.get("total_released")
+                    if valor and valor != "0" and valor != 0 and valor != "":
+                        tem_valor_liberado = True
+
                 phone_number = doc.get("session_id")
                 send_by = doc.get("send_by") or customer_data.get("send_by") or "manual"
                 proposal_created_at = customer_data.get("proposal_created_at")
+
+                # Timestamp da última mensagem
+                ultimo_timestamp = None
+                if doc.get("messages") and len(doc.get("messages", [])) > 0:
+                    ultimo_timestamp = doc["messages"][-1].get("timestamp")
 
                 item = {
                     "contract_number": doc.get("contract_number")
@@ -519,9 +584,11 @@ class ChatService:
                     "send_by": send_by,
                     "formalization_link": formalization_link,
                     "has_contract": bool(doc.get("contract_number")),
+                    "tem_valor_liberado": tem_valor_liberado,  # Adicionando flag para o frontend
                     "proposal_created_at": proposal_created_at
                     or "Proposta aguardando envio",
                     "phone_number": phone_number,
+                    "ultimo_timestamp": ultimo_timestamp,
                 }
                 pipeline_items.append(item)
 

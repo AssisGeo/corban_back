@@ -294,14 +294,7 @@ class ChatService:
     ) -> Dict[str, Any]:
         """
         Obtém dados da pipeline com paginação, tratando todos os documentos como uma única coleção.
-
-        Args:
-            page: Número da página (começa em 1)
-            per_page: Número de itens por página
-            cpf_search: CPF opcional para filtrar resultados
-
-        Returns:
-            Dict com itens paginados e informações de paginação
+        Versão corrigida para evitar registros duplicados entre páginas.
         """
         try:
             page = max(1, page)
@@ -322,26 +315,17 @@ class ChatService:
                     {"cpf": {"$regex": cpf_search, "$options": "i"}},
                 ]
 
-            # Contagem correta de documentos com e sem contrato
-            total_with_contract = self.memory_manager.collection.count_documents(
-                {**base_query, "contract_number": {"$exists": True, "$ne": ""}}
-            )
-
-            # Usamos negação de existência de contrato ou contrato vazio
-            total_without_contract = self.memory_manager.collection.count_documents(
-                {
-                    **base_query,
-                    "$or": [
-                        {"contract_number": {"$exists": False}},
-                        {"contract_number": ""},
-                    ],
-                }
-            )
-
-            total = total_with_contract + total_without_contract
-
+            # Usar o $group para garantir que cada session_id apareça apenas uma vez
             pipeline = [
                 {"$match": base_query},
+                {
+                    "$group": {
+                        "_id": "$session_id",
+                        "doc": {"$first": "$$ROOT"},
+                        "last_updated": {"$max": "$last_updated"},
+                    }
+                },
+                {"$replaceRoot": {"newRoot": "$doc"}},
                 {
                     "$addFields": {
                         "has_contract": {
@@ -363,7 +347,61 @@ class ChatService:
                 {"$limit": per_page},
             ]
 
-            # Executar pipeline
+            # Calcular contagens com a mesma lógica de agrupamento para consistência
+            count_pipeline = [
+                {"$match": base_query},
+                {"$group": {"_id": "$session_id"}},
+                {"$count": "total"},
+            ]
+
+            count_with_contract_pipeline = [
+                {
+                    "$match": {
+                        **base_query,
+                        "contract_number": {"$exists": True, "$ne": ""},
+                    }
+                },
+                {"$group": {"_id": "$session_id"}},
+                {"$count": "total"},
+            ]
+
+            count_without_contract_pipeline = [
+                {
+                    "$match": {
+                        **base_query,
+                        "$or": [
+                            {"contract_number": {"$exists": False}},
+                            {"contract_number": ""},
+                        ],
+                    }
+                },
+                {"$group": {"_id": "$session_id"}},
+                {"$count": "total"},
+            ]
+
+            # Executar contagens
+            count_result = list(
+                self.memory_manager.collection.aggregate(count_pipeline)
+            )
+            total = count_result[0]["total"] if count_result else 0
+
+            count_with_contract = list(
+                self.memory_manager.collection.aggregate(count_with_contract_pipeline)
+            )
+            total_with_contract = (
+                count_with_contract[0]["total"] if count_with_contract else 0
+            )
+
+            count_without_contract = list(
+                self.memory_manager.collection.aggregate(
+                    count_without_contract_pipeline
+                )
+            )
+            total_without_contract = (
+                count_without_contract[0]["total"] if count_without_contract else 0
+            )
+
+            # Executar pipeline principal para obter os registros
             chats = list(self.memory_manager.collection.aggregate(pipeline))
 
             # Processar os resultados
